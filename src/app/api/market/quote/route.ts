@@ -158,19 +158,27 @@ async function fetchAmfi(symbol: string, date?: string): Promise<MarketQuote> {
   if (date) {
     const requested = new Date(`${date}T00:00:00.000Z`);
     if (Number.isFinite(requested.getTime())) {
+      // Fetch history for one scheme rather than downloading AMFI's all-schemes file.
+      // MFAPI mirrors Indian scheme NAV history and supports date-range filtering.
       const from = new Date(requested.getTime() - 10 * 86400000);
-      const historyUrl = new URL("https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx");
-      historyUrl.searchParams.set("frmdt", amfiDate(from));
-      historyUrl.searchParams.set("todt", amfiDate(requested));
+      const historyUrl = new URL(`https://api.mfapi.in/mf/${encodeURIComponent(current.code)}`);
+      historyUrl.searchParams.set("startDate", dateText(from));
+      historyUrl.searchParams.set("endDate", date);
       const historyResponse = await fetch(historyUrl, {
         headers: { "User-Agent": "MoneyManager/1.0 (personal portfolio tracker)" },
         next: { revalidate: 86400 },
       });
       if (historyResponse.ok) {
-        const historical = findAmfiRow(await historyResponse.text(), symbol, "history");
-        if (historical && historical.date <= date) {
-          historicalPrice = historical.nav;
-          historicalDate = historical.date;
+        const historyJson = await historyResponse.json();
+        const rows: Array<{ date?: string; nav?: string | number }> = historyJson?.data ?? [];
+        const historyRows = rows.map(row => {
+          const [day, month, year] = String(row.date ?? "").split("-");
+          return { date: year && month && day ? `${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}` : "", price: Number(row.nav) };
+        }).filter(row => row.date <= date && row.date !== "" && Number.isFinite(row.price) && row.price > 0)
+          .sort((a,b) => b.date.localeCompare(a.date));
+        if (historyRows[0]) {
+          historicalPrice = historyRows[0].price;
+          historicalDate = historyRows[0].date;
         }
       }
     }
@@ -178,7 +186,7 @@ async function fetchAmfi(symbol: string, date?: string): Promise<MarketQuote> {
 
   return {
     symbol,
-    source: "AMFI NAV",
+    source: "AMFI NAV / MFAPI.in historical NAV",
     currency: "INR",
     currentPrice: current.nav,
     currentDate: current.date,
