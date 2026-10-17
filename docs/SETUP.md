@@ -11,7 +11,7 @@ Money Manager uses its own Supabase project, separate from FlowLedger.
 ## Investment tracking and market prices
 - Investments are assets with a dated buy/sell activity ledger in `mm_investment_transactions`.
 - Cost basis and realized profit/loss use weighted-average cost. Open-position market value is units multiplied by the latest saved price.
-- Stocks/ETFs use a Yahoo Finance chart endpoint through a server-side adapter. Yahoo's public chart access is unofficial, can change or rate-limit, and is not a supported commercial market-data API. Quotes may be delayed; check current Yahoo terms before relying on the source beyond personal use.
+- Stocks/ETFs currently use an unofficial Yahoo Finance chart endpoint through a server-side adapter. It can change, fail, or rate-limit. Yahoo terms restrict automated data collection without prior permission, so this integration is a personal-use prototype, not a licensed or guaranteed market-data service. Check the current Yahoo terms before use; do not rely on this adapter for a public/commercial product without permission or a properly licensed provider. Quotes may be delayed.
 - Indian mutual funds use AMFI NAV feeds. The symbol should be an AMFI scheme code or ISIN.
 - Automatic price lookups require an Indian rupee quote for now. Foreign-currency stocks are not converted into INR automatically, to avoid misleading portfolio totals.
 - Gold, other assets, and unsupported tickers can use a manual per-unit price. If a historical quote is unavailable, enter the buy price manually.
