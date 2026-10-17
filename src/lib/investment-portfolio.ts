@@ -78,7 +78,7 @@ export function calculateInvestmentPosition(
   const storedPrice = n(investment.current_price);
   const legacyImpliedPrice = units > 0 ? n(investment.current_value) / units : 0;
   const currentPrice = storedPrice > 0 ? storedPrice : legacyImpliedPrice;
-  const marketValue = units > 0 && currentPrice > 0 ? units * currentPrice : n(investment.current_value);
+  const marketValue = units <= 0 ? 0 : currentPrice > 0 ? units * currentPrice : n(investment.current_value);
   const unrealizedGain = marketValue - costBasis;
 
   return {
