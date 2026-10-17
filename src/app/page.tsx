@@ -417,20 +417,46 @@ function OverviewPage(p:{loading:boolean;income:number;expense:number;cash:numbe
  <div className="grid dashboard-grid"><section className="panel"><div className="panel-head"><div><h2 className="panel-title">Recent transactions</h2><div className="panel-subtitle">Your latest activity</div></div><button className="btn subtle" onClick={()=>p.onNavigate("Transactions")}>See all <ChevronDown size={14}/></button></div><div className="panel-body">{p.recent.length===0?<div className="empty">No transactions recorded yet.</div>:p.recent.map(t=><TransactionRow key={t.id} row={t} accountName={t.account_id?p.accountMap.get(t.account_id):undefined} onEdit={()=>p.onEditTransaction(t)} onDelete={()=>p.onDeleteTransaction(t)}/>)}</div></section>
  <section className="panel"><div className="panel-head"><div><h2 className="panel-title">Spending breakdown</h2><div className="panel-subtitle">Top expense categories this month</div></div></div><div className="panel-body">{p.expenseByCategory.length===0?<div className="empty">Category breakdown appears after you log expenses.</div>:p.expenseByCategory.map((r,i)=>{const colors=["#16856b","#7590ed","#d9913b","#b59adb","#d95b64"],pct=p.expense?r.amount/p.expense*100:0;return <div className="budget-row" key={r.category}><div className="budget-row-head"><span className="budget-name">{r.category}</span><span className="budget-numbers">{formatINR(r.amount)} · {Math.round(pct)}%</span></div><div className="progress"><span style={{width:`${pct}%`,background:colors[i]}}/></div></div>})}</div></section></div></div>;
 }
-function TransactionRow({row,accountName,onEdit,onDelete}:{row:Transaction;accountName?:string;onEdit:()=>void;onDelete:()=>void}){
+function TransactionRow({row,accountName,onEdit,onDelete,refundedAmount=0,onRefund}:{row:Transaction;accountName?:string;onEdit:()=>void;onDelete:()=>void;refundedAmount?:number;onRefund?:()=>void}){
  const income = row.kind === "income";
+ const netCost = Math.max(0,num(row.amount)-refundedAmount);
  return <div className="transaction-row">
   <div style={{display:"flex",gap:11,alignItems:"center",minWidth:0}}>
    <div className="metric-icon" style={{flexShrink:0,background:income?"#e9f6f1":"#fff5e8",color:income?"#16856b":"#d9913b"}}>{income?<ArrowDownLeft size={16}/>:<ShoppingBag size={16}/>}</div>
-   <div style={{minWidth:0}}><div className="transaction-name" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.description||row.category}</div><div className="transaction-meta">{row.category} · {dateLabel(row.occurred_on)}{accountName?` · ${accountName}`:""}</div></div>
+   <div style={{minWidth:0}}><div className="transaction-name" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.description||row.category}</div><div className="transaction-meta">{row.category} · {dateLabel(row.occurred_on)}{accountName?` · ${accountName}`:""}{!income&&refundedAmount>0?` · Refunded ${formatINR(refundedAmount)} · Net ${formatINR(netCost)}`:""}</div></div>
   </div>
-  <span className={"pill "+(income?"green":"red")}>{income?"Income":"Expense"}</span>
-  <div style={{display:"flex",alignItems:"center",gap:5}}><div className="transaction-amount" style={{color:income?"#16856b":"#252a33"}}>{income?"+":"−"}{formatINR(num(row.amount))}</div><button className="icon-btn" aria-label="Edit transaction" onClick={onEdit} style={{width:28,height:28,borderColor:"transparent"}}><Pencil size={12}/></button><button className="icon-btn" aria-label="Delete transaction" onClick={onDelete} style={{width:28,height:28,borderColor:"transparent"}}><Trash2 size={12}/></button></div>
+  <span className={"pill "+(income?"green":"red")}>{income?"Income":refundedAmount>0?"Expense · refunded":"Expense"}</span>
+  <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><div className="transaction-amount" style={{color:income?"#16856b":"#252a33"}}>{income?"+":"−"}{formatINR(num(row.amount))}</div>{!income&&onRefund&&netCost>0.001&&<button className="icon-btn" aria-label="Record refund" title="Record refund" onClick={onRefund} style={{width:28,height:28,borderColor:"transparent"}}><RotateCcw size={12}/></button>}<button className="icon-btn" aria-label="Edit transaction" onClick={onEdit} style={{width:28,height:28,borderColor:"transparent"}}><Pencil size={12}/></button><button className="icon-btn" aria-label="Delete transaction" onClick={onDelete} style={{width:28,height:28,borderColor:"transparent"}}><Trash2 size={12}/></button></div>
  </div>;
 }
-function TransactionsPage(p:{rows:Transaction[];accountMap:Map<string,string>;searchTerm:string;setSearchTerm:(v:string)=>void;filter:"all"|"income"|"expense";setFilter:(v:"all"|"income"|"expense")=>void;onAdd:()=>void;onEdit:(t:Transaction)=>void;onDelete:(t:Transaction)=>void}){
- const income=p.rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0),expense=p.rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0);
- return <div><div className="grid metric-grid" style={{marginBottom:16}}><Metric label="Visible income" value={income} note="Based on current filters" icon={ArrowDownLeft}/><Metric label="Visible expenses" value={expense} note={`${p.rows.length} transactions shown`} icon={ArrowUpRight} tone="orange"/><Metric label="Net cash flow" value={income-expense} note="Income less expenses" icon={Activity} tone={income>=expense?"green":"red"}/><Metric label="Transaction count" value={String(p.rows.length)} note="Latest recorded activity" icon={ArrowLeftRight} tone="blue"/></div><section className="panel"><div className="panel-head"><div><h2 className="panel-title">All transactions</h2><div className="panel-subtitle">Search, filter, edit, or delete records</div></div><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add</button></div><div className="panel-body"><div className="filters" style={{marginBottom:14}}><div style={{position:"relative",flex:"1 1 180px"}}><Search size={15} style={{position:"absolute",left:11,top:11,color:"#9ba1ad"}}/><input className="search" style={{paddingLeft:33,width:"100%"}} placeholder="Search transactions" value={p.searchTerm} onChange={e=>p.setSearchTerm(e.target.value)}/></div><select className="search" style={{width:"auto"}} value={p.filter} onChange={e=>p.setFilter(e.target.value as typeof p.filter)}><option value="all">All types</option><option value="income">Income</option><option value="expense">Expenses</option></select></div>{p.rows.length===0?<div className="empty">No matching transactions. Add a transaction to get started.</div>:p.rows.map(t=><TransactionRow key={t.id} row={t} accountName={t.account_id?p.accountMap.get(t.account_id):undefined} onEdit={()=>p.onEdit(t)} onDelete={()=>p.onDelete(t)}/>)}</div></section></div>;
+function TransactionsPage(p:{
+ rows:Transaction[];
+ accountMap:Map<string,string>;
+ searchTerm:string;
+ setSearchTerm:(v:string)=>void;
+ filter:"all"|"income"|"expense";
+ setFilter:(v:"all"|"income"|"expense")=>void;
+ refundTotals:Map<string,number>;
+ onAdd:()=>void;
+ onImport:()=>void;
+ onExport:()=>void;
+ onCategories:()=>void;
+ onRefund:(transaction:Transaction)=>void;
+ onEdit:(t:Transaction)=>void;
+ onDelete:(t:Transaction)=>void;
+}){
+ const income=p.rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0);
+ const expense=p.rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+Math.max(0,num(t.amount)-(p.refundTotals.get(t.id)??0)),0);
+ return <div>
+  <div className="grid metric-grid" style={{marginBottom:16}}><Metric label="Visible income" value={income} note="Based on current filters" icon={ArrowDownLeft}/><Metric label="Net expenses" value={expense} note={`${p.rows.length} transactions shown · after refunds`} icon={ArrowUpRight} tone="orange"/><Metric label="Net cash flow" value={income-expense} note="Income less net expenses" icon={Activity} tone={income>=expense?"green":"red"}/><Metric label="Transaction count" value={String(p.rows.length)} note="Latest recorded activity" icon={ArrowLeftRight} tone="blue"/></div>
+  <section className="panel">
+   <div className="panel-head"><div><h2 className="panel-title">All transactions</h2><div className="panel-subtitle">Import, export, record refunds, and manage your categories</div></div><div className="filters"><button className="btn" onClick={p.onCategories}><Layers3 size={14}/> Categories</button><button className="btn" onClick={p.onExport}><Download size={14}/> Export CSV</button><button className="btn" onClick={p.onImport}><Upload size={14}/> Import</button><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add</button></div></div>
+   <div className="panel-body">
+    <div className="filters" style={{marginBottom:14}}><div style={{position:"relative",flex:"1 1 180px"}}><Search size={15} style={{position:"absolute",left:11,top:11,color:"#9ba1ad"}}/><input className="search" style={{paddingLeft:33,width:"100%"}} placeholder="Search transactions" value={p.searchTerm} onChange={e=>p.setSearchTerm(e.target.value)}/></div><select className="search" style={{width:"auto"}} value={p.filter} onChange={e=>p.setFilter(e.target.value as typeof p.filter)}><option value="all">All types</option><option value="income">Income</option><option value="expense">Expenses</option></select></div>
+    {p.rows.length===0?<div className="empty">No matching transactions. Add a transaction to get started.</div>:p.rows.map(t=><TransactionRow key={t.id} row={t} accountName={t.account_id?p.accountMap.get(t.account_id):undefined} refundedAmount={p.refundTotals.get(t.id)??0} onRefund={t.kind==="expense"?()=>p.onRefund(t):undefined} onEdit={()=>p.onEdit(t)} onDelete={()=>p.onDelete(t)}/>)}
+   </div>
+  </section>
+ </div>;
 }
 function BudgetsPage({budgets,spend,onAdd,onDelete}:{budgets:Budget[];spend:(category:string)=>number;onAdd:()=>void;onDelete:(b:Budget)=>void}){
  const month=todayISO().slice(0,7),current=budgets.filter(b=>b.month.slice(0,7)===month),total=current.reduce((s,b)=>s+num(b.monthly_limit),0),spent=current.reduce((s,b)=>s+spend(b.category),0);
