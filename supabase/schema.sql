@@ -34,6 +34,7 @@ create index if not exists mm_transactions_account_idx on public.mm_transactions
 create index if not exists mm_budgets_user_month_idx on public.mm_budgets(user_id,month);
 create index if not exists mm_investments_user_type_idx on public.mm_investments(user_id,asset_type);
 create index if not exists mm_adjustments_user_account_idx on public.mm_account_adjustments(user_id,account_id);
+create index if not exists mm_account_adjustments_account_id_idx on public.mm_account_adjustments(account_id);
 alter table public.mm_accounts enable row level security;
 alter table public.mm_transactions enable row level security;
 alter table public.mm_budgets enable row level security;
