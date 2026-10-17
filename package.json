@@ -28,5 +28,8 @@
     "eslint-config-next": "^15.5.3",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "xlsx": "npm:@keep-lts/xlsx@^0.18.6"
   }
 }
