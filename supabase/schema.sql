@@ -39,7 +39,6 @@ alter table public.mm_transactions enable row level security;
 alter table public.mm_budgets enable row level security;
 alter table public.mm_investments enable row level security;
 alter table public.mm_account_adjustments enable row level security;
-alter table public.profiles enable row level security;
 
 -- Explicit policies; linked rows are also verified to belong to the signed-in user.
 drop policy if exists accounts_select_own on public.mm_accounts;
