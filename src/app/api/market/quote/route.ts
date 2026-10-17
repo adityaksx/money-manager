@@ -19,12 +19,6 @@ function dateText(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
-function amfiDate(value: Date) {
-  const day = String(value.getUTCDate()).padStart(2, "0");
-  const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][value.getUTCMonth()];
-  return `${day}-${month}-${value.getUTCFullYear()}`;
-}
-
 async function authorize(request: Request) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
