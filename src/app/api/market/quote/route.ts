@@ -55,6 +55,9 @@ async function fetchYahoo(symbol: string, date?: string): Promise<MarketQuote> {
   const times: number[] = result.timestamp ?? [];
   const lastIndex = [...closes.keys()].reverse().find(index => typeof closes[index] === "number" && Number.isFinite(closes[index]));
   const currentPrice = Number(meta.regularMarketPrice ?? (lastIndex === undefined ? NaN : closes[lastIndex]));
+  if (String(meta.currency ?? "INR").toUpperCase() !== "INR") {
+    throw new Error("This portfolio currently totals holdings in INR. Use an Indian exchange symbol such as RELIANCE.NS or enter a manual INR price; foreign-currency conversion is not enabled yet.");
+  }
   if (!Number.isFinite(currentPrice) || currentPrice <= 0) throw new Error("No usable current quote was returned for this symbol.");
   const currentDate = meta.regularMarketTime
     ? dateText(new Date(Number(meta.regularMarketTime) * 1000))
@@ -117,7 +120,9 @@ function findAmfiRow(text: string, symbol: string, columns: "latest" | "history"
     const name = columns === "latest" ? fields[3] : fields[1];
     const navText = columns === "latest" ? fields[4] : fields[4];
     const dateRaw = columns === "latest" ? fields[5] : fields[7];
-    const rowDate = new Date(dateRaw);
+    const [dayText, monthText, yearText] = dateRaw.split("-");
+    const monthIndex = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].indexOf(String(monthText).toLowerCase());
+    const rowDate = monthIndex >= 0 ? new Date(Date.UTC(Number(yearText), monthIndex, Number(dayText))) : new Date(dateRaw);
     const nav = Number(navText);
     if (!Number.isFinite(nav) || nav <= 0 || !Number.isFinite(rowDate.getTime())) continue;
     if (code === normalized || isins.some(isin => isin.toUpperCase() === normalized)) {
