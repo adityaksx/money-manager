@@ -119,6 +119,126 @@ create policy adjustments_update_own on public.mm_account_adjustments for update
 drop policy if exists adjustments_delete_own on public.mm_account_adjustments;
 create policy adjustments_delete_own on public.mm_account_adjustments for delete to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_accounts a where a.id=account_id and a.user_id=(select auth.uid())));
 
-revoke all on public.mm_accounts,public.mm_transactions,public.mm_budgets,public.mm_investments,public.mm_account_adjustments,public.mm_investment_transactions from anon;
-grant select,insert,update,delete on public.mm_accounts,public.mm_transactions,public.mm_budgets,public.mm_investments,public.mm_account_adjustments,public.mm_investment_transactions to authenticated;
+create table if not exists public.mm_transaction_refunds (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+ transaction_id uuid not null references public.mm_transactions(id) on delete cascade,
+ amount numeric(14,2) not null check(amount > 0),
+ received_on date not null default current_date,
+ note text,
+ created_at timestamptz not null default now()
+);
+create index if not exists mm_transaction_refunds_user_transaction_idx on public.mm_transaction_refunds(user_id,transaction_id,received_on);
+
+create table if not exists public.mm_categories (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+ kind text not null check(kind in ('income','expense')),
+ name text not null check(char_length(trim(name)) between 1 and 48),
+ is_default boolean not null default false,
+ created_at timestamptz not null default now(),
+ unique(user_id,kind,name)
+);
+create index if not exists mm_categories_user_kind_idx on public.mm_categories(user_id,kind,name);
+
+create table if not exists public.mm_debts (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+ direction text not null check(direction in ('lent','borrowed')),
+ person_name text not null check(char_length(trim(person_name)) between 1 and 100),
+ amount numeric(14,2) not null check(amount > 0),
+ occurred_on date not null default current_date,
+ account_id uuid references public.mm_accounts(id) on delete set null,
+ transaction_id uuid not null references public.mm_transactions(id) on delete restrict,
+ note text,
+ created_at timestamptz not null default now()
+);
+create index if not exists mm_debts_user_date_idx on public.mm_debts(user_id,occurred_on desc);
+
+create table if not exists public.mm_debt_repayments (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+ debt_id uuid not null references public.mm_debts(id) on delete cascade,
+ amount numeric(14,2) not null check(amount > 0),
+ occurred_on date not null default current_date,
+ transaction_id uuid not null references public.mm_transactions(id) on delete restrict,
+ note text,
+ created_at timestamptz not null default now()
+);
+create index if not exists mm_debt_repayments_user_debt_date_idx on public.mm_debt_repayments(user_id,debt_id,occurred_on);
+
+create or replace function public.mm_validate_transaction_refund()
+returns trigger language plpgsql as $
+declare original_amount numeric(14,2); original_kind text; total_before numeric(14,2);
+begin
+ select amount,kind into original_amount,original_kind
+ from public.mm_transactions where id=new.transaction_id and user_id=new.user_id;
+ if not found or original_kind <> 'expense' then raise exception 'Refunds must be linked to your own expense transaction.'; end if;
+ select coalesce(sum(amount),0) into total_before from public.mm_transaction_refunds
+ where transaction_id=new.transaction_id and user_id=new.user_id and id is distinct from new.id;
+ if total_before + new.amount > original_amount then raise exception 'Total refunds cannot exceed the original transaction amount.'; end if;
+ return new;
+end; $;
+drop trigger if exists mm_transaction_refund_validate on public.mm_transaction_refunds;
+create trigger mm_transaction_refund_validate before insert or update on public.mm_transaction_refunds
+for each row execute function public.mm_validate_transaction_refund();
+
+create or replace function public.mm_validate_debt_repayment()
+returns trigger language plpgsql as $
+declare principal numeric(14,2); total_before numeric(14,2);
+begin
+ select amount into principal from public.mm_debts where id=new.debt_id and user_id=new.user_id;
+ if not found then raise exception 'Debt record not found for this user.'; end if;
+ select coalesce(sum(amount),0) into total_before from public.mm_debt_repayments
+ where debt_id=new.debt_id and user_id=new.user_id and id is distinct from new.id;
+ if total_before + new.amount > principal then raise exception 'Total repayments cannot exceed the original amount.'; end if;
+ return new;
+end; $;
+drop trigger if exists mm_debt_repayment_validate on public.mm_debt_repayments;
+create trigger mm_debt_repayment_validate before insert or update on public.mm_debt_repayments
+for each row execute function public.mm_validate_debt_repayment();
+
+alter table public.mm_transaction_refunds enable row level security;
+alter table public.mm_categories enable row level security;
+alter table public.mm_debts enable row level security;
+alter table public.mm_debt_repayments enable row level security;
+
+drop policy if exists transaction_refunds_select_own on public.mm_transaction_refunds;
+create policy transaction_refunds_select_own on public.mm_transaction_refunds for select to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid())));
+drop policy if exists transaction_refunds_insert_own on public.mm_transaction_refunds;
+create policy transaction_refunds_insert_own on public.mm_transaction_refunds for insert to authenticated with check(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid()) and t.kind='expense'));
+drop policy if exists transaction_refunds_update_own on public.mm_transaction_refunds;
+create policy transaction_refunds_update_own on public.mm_transaction_refunds for update to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid()))) with check(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid()) and t.kind='expense'));
+drop policy if exists transaction_refunds_delete_own on public.mm_transaction_refunds;
+create policy transaction_refunds_delete_own on public.mm_transaction_refunds for delete to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid())));
+
+drop policy if exists categories_select_own on public.mm_categories;
+create policy categories_select_own on public.mm_categories for select to authenticated using(user_id=(select auth.uid()));
+drop policy if exists categories_insert_own on public.mm_categories;
+create policy categories_insert_own on public.mm_categories for insert to authenticated with check(user_id=(select auth.uid()));
+drop policy if exists categories_update_custom on public.mm_categories;
+create policy categories_update_custom on public.mm_categories for update to authenticated using(user_id=(select auth.uid()) and is_default=false) with check(user_id=(select auth.uid()) and is_default=false);
+drop policy if exists categories_delete_custom on public.mm_categories;
+create policy categories_delete_custom on public.mm_categories for delete to authenticated using(user_id=(select auth.uid()) and is_default=false);
+
+drop policy if exists debts_select_own on public.mm_debts;
+create policy debts_select_own on public.mm_debts for select to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid())));
+drop policy if exists debts_insert_own on public.mm_debts;
+create policy debts_insert_own on public.mm_debts for insert to authenticated with check(user_id=(select auth.uid()) and (account_id is null or exists(select 1 from public.mm_accounts a where a.id=account_id and a.user_id=(select auth.uid()))) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid())));
+drop policy if exists debts_update_own on public.mm_debts;
+create policy debts_update_own on public.mm_debts for update to authenticated using(user_id=(select auth.uid())) with check(user_id=(select auth.uid()) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid())));
+drop policy if exists debts_delete_own on public.mm_debts;
+create policy debts_delete_own on public.mm_debts for delete to authenticated using(user_id=(select auth.uid()));
+
+drop policy if exists debt_repayments_select_own on public.mm_debt_repayments;
+create policy debt_repayments_select_own on public.mm_debt_repayments for select to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_debts d where d.id=debt_id and d.user_id=(select auth.uid())));
+drop policy if exists debt_repayments_insert_own on public.mm_debt_repayments;
+create policy debt_repayments_insert_own on public.mm_debt_repayments for insert to authenticated with check(user_id=(select auth.uid()) and exists(select 1 from public.mm_debts d where d.id=debt_id and d.user_id=(select auth.uid())) and exists(select 1 from public.mm_transactions t where t.id=transaction_id and t.user_id=(select auth.uid())));
+drop policy if exists debt_repayments_update_own on public.mm_debt_repayments;
+create policy debt_repayments_update_own on public.mm_debt_repayments for update to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_debts d where d.id=debt_id and d.user_id=(select auth.uid()))) with check(user_id=(select auth.uid()) and exists(select 1 from public.mm_debts d where d.id=debt_id and d.user_id=(select auth.uid())));
+drop policy if exists debt_repayments_delete_own on public.mm_debt_repayments;
+create policy debt_repayments_delete_own on public.mm_debt_repayments for delete to authenticated using(user_id=(select auth.uid()) and exists(select 1 from public.mm_debts d where d.id=debt_id and d.user_id=(select auth.uid())));
+
+revoke all on public.mm_accounts,public.mm_transactions,public.mm_budgets,public.mm_investments,public.mm_account_adjustments,public.mm_investment_transactions,public.mm_transaction_refunds,public.mm_categories,public.mm_debts,public.mm_debt_repayments from anon;
+grant select,insert,update,delete on public.mm_accounts,public.mm_transactions,public.mm_budgets,public.mm_investments,public.mm_account_adjustments,public.mm_investment_transactions,public.mm_transaction_refunds,public.mm_categories,public.mm_debts,public.mm_debt_repayments to authenticated;
 
