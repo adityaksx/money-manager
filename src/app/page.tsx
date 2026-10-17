@@ -128,7 +128,7 @@ export default function Home() {
       if (!token) throw new Error("Your login session expired. Sign in again.");
       for (const investment of candidates) {
         try {
-          const params = new URLSearchParams({ symbol: investment.symbol || "", type: investment.asset_type });
+          const params = new URLSearchParams({ symbol: investment.symbol || "", type: investment.asset_type, exchange: investment.exchange || "" });
           const response = await fetch(`/api/market/quote?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
           const quote = await response.json();
           if (!response.ok) throw new Error(quote.error || "Quote was unavailable.");
