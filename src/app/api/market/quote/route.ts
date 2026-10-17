@@ -52,7 +52,7 @@ async function fetchYahoo(inputSymbol: string, date?: string, exchange = ""): Pr
   currentUrl.searchParams.set("range", "5d");
   currentUrl.searchParams.set("interval", "1d");
   const currentResponse = await fetch(currentUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 MoneyManager/1.0" },
+    headers: { "User-Agent": "MoneyManager/1.0 (personal portfolio tracker)" },
     next: { revalidate: 900 },
   });
   if (!currentResponse.ok) throw new Error("Yahoo Finance could not be reached. Try again or enter prices manually.");
@@ -84,7 +84,7 @@ async function fetchYahoo(inputSymbol: string, date?: string, exchange = ""): Pr
     historyUrl.searchParams.set("period2", String(period2));
     historyUrl.searchParams.set("interval", "1d");
     const historyResponse = await fetch(historyUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 MoneyManager/1.0" },
+      headers: { "User-Agent": "MoneyManager/1.0 (personal portfolio tracker)" },
       next: { revalidate: 86400 },
     });
     if (historyResponse.ok) {
@@ -145,7 +145,7 @@ function findAmfiRow(text: string, symbol: string, columns: "latest" | "history"
 async function fetchAmfi(symbol: string, date?: string): Promise<MarketQuote> {
   // AMFI is the first-party daily NAV source for Indian mutual fund schemes.
   const currentResponse = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
-    headers: { "User-Agent": "Mozilla/5.0 MoneyManager/1.0" },
+    headers: { "User-Agent": "MoneyManager/1.0 (personal portfolio tracker)" },
     next: { revalidate: 21600 },
   });
   if (!currentResponse.ok) throw new Error("AMFI latest NAV feed is temporarily unavailable.");
@@ -163,7 +163,7 @@ async function fetchAmfi(symbol: string, date?: string): Promise<MarketQuote> {
       historyUrl.searchParams.set("frmdt", amfiDate(from));
       historyUrl.searchParams.set("todt", amfiDate(requested));
       const historyResponse = await fetch(historyUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 MoneyManager/1.0" },
+        headers: { "User-Agent": "MoneyManager/1.0 (personal portfolio tracker)" },
         next: { revalidate: 86400 },
       });
       if (historyResponse.ok) {
