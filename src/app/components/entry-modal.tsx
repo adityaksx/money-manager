@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { X, Plus, ArrowLeftRight } from "lucide-react";
 import type { CSSProperties } from "react";
 
