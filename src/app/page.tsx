@@ -13,7 +13,7 @@ type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investm
 type Account = { id: string; name: string; account_type: string; institution: string | null; opening_balance: number; color: string; created_at: string };
 type Transaction = { id: string; account_id: string | null; kind: "income" | "expense"; amount: number; category: string; description: string; occurred_on: string; created_at: string };
 type Budget = { id: string; category: string; monthly_limit: number; month: string };
-type Investment = { id: string; asset_type: "stock" | "mutual_fund" | "etf" | "gold" | "other"; name: string; symbol: string | null; platform: string | null; exchange: string | null; units: number; invested_amount: number; current_value: number; current_price: number | null; price_updated_at: string | null; price_source: string | null; purchase_date: string; notes: string | null };
+type Investment = { id: string; asset_type: "stock" | "mutual_fund" | "etf" | "gold" | "other"; name: string; symbol: string | null; platform: string | null; exchange?: string | null; units: number; invested_amount: number; current_value: number; current_price?: number | null; price_updated_at?: string | null; price_source?: string | null; purchase_date: string; notes: string | null };
 type AuthUser = { id: string; email?: string; user_metadata?: Record<string, string> };
 
 const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
