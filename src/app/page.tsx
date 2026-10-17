@@ -6,12 +6,14 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dateKey, formatINR, monthRange, todayISO } from "@/lib/format";
 import EntryModal from "@/app/entry-modal";
+import InvestmentActivityModal from "@/app/components/investment-activity-modal";
+import { calculateInvestmentPosition, type InvestmentActivity, type InvestmentPosition } from "@/lib/investment-portfolio";
 
 type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investments";
 type Account = { id: string; name: string; account_type: string; institution: string | null; opening_balance: number; color: string; created_at: string };
 type Transaction = { id: string; account_id: string | null; kind: "income" | "expense"; amount: number; category: string; description: string; occurred_on: string; created_at: string };
 type Budget = { id: string; category: string; monthly_limit: number; month: string };
-type Investment = { id: string; asset_type: "stock" | "mutual_fund" | "etf" | "gold" | "other"; name: string; symbol: string | null; platform: string | null; units: number; invested_amount: number; current_value: number; purchase_date: string; notes: string | null };
+type Investment = { id: string; asset_type: "stock" | "mutual_fund" | "etf" | "gold" | "other"; name: string; symbol: string | null; platform: string | null; exchange: string | null; units: number; invested_amount: number; current_value: number; current_price: number | null; price_updated_at: string | null; price_source: string | null; purchase_date: string; notes: string | null };
 type AuthUser = { id: string; email?: string; user_metadata?: Record<string, string> };
 
 const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
@@ -34,6 +36,10 @@ export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
+  const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentActivity[]>([]);
+  const [investmentActionId, setInvestmentActionId] = useState<string | null>(null);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [autoPriceRefreshStarted, setAutoPriceRefreshStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [authError, setAuthError] = useState("");
@@ -49,20 +55,22 @@ export default function Home() {
   const loadData = useCallback(async () => {
     if (!supabase || !user) return;
     setLoading(true);
-    const [a, t, b, i, adj] = await Promise.all([
+    const [a, t, b, i, adj, ia] = await Promise.all([
       supabase.from("mm_accounts").select("id,name,account_type,institution,opening_balance,color,created_at").order("created_at", { ascending: true }),
       supabase.from("mm_transactions").select("id,account_id,kind,amount,category,description,occurred_on,created_at").order("occurred_on", { ascending: false }).limit(500),
       supabase.from("mm_budgets").select("id,category,monthly_limit,month").order("category"),
-      supabase.from("mm_investments").select("id,asset_type,name,symbol,platform,units,invested_amount,current_value,purchase_date,notes").order("created_at", { ascending: false }),
+      supabase.from("mm_investments").select("id,asset_type,name,symbol,platform,exchange,units,invested_amount,current_value,current_price,price_updated_at,price_source,purchase_date,notes").order("created_at", { ascending: false }),
       supabase.from("mm_account_adjustments").select("account_id,amount"),
+      supabase.from("mm_investment_transactions").select("id,investment_id,action,units,unit_price,fees,occurred_on,created_at,notes").order("occurred_on", { ascending: true }),
     ]);
-    const errors = [a.error, t.error, b.error, i.error, adj.error].filter(Boolean);
+    const errors = [a.error, t.error, b.error, i.error, adj.error, ia.error].filter(Boolean);
     if (errors.length) setNotice(errors[0]?.message ?? "Could not load your data.");
     else {
       setAccounts((a.data ?? []) as Account[]);
       setTransactions((t.data ?? []) as Transaction[]);
       setBudgets((b.data ?? []) as Budget[]);
       setInvestments((i.data ?? []) as Investment[]);
+      setInvestmentTransactions((ia.data ?? []) as InvestmentActivity[]);
       setAccountAdjustments((adj.data ?? []) as { account_id: string; amount: number }[]);
       setNotice("");
     }
@@ -95,13 +103,87 @@ export default function Home() {
   async function signOut() {
     if (!supabase) return;
     await supabase.auth.signOut();
-    setUser(null); setAccounts([]); setTransactions([]); setBudgets([]); setInvestments([]); setAccountAdjustments([]);
+    setUser(null); setAccounts([]); setTransactions([]); setBudgets([]); setInvestments([]); setInvestmentTransactions([]); setAccountAdjustments([]); setInvestmentActionId(null); setAutoPriceRefreshStarted(false);
   }
   function openTransaction(transaction?: Transaction) { setEditingTransaction(transaction ?? null); setModal("transaction"); }
   function openInvestment(investment?: Investment) { setEditingInvestment(investment ?? null); setModal("investment"); }
   function notify(message: string) {
     setNotice(message);
     window.setTimeout(() => setNotice(current => current === message ? "" : current), 4500);
+  }
+
+  const refreshMarketPrices = useCallback(async () => {
+    if (!supabase) return;
+    const candidates = investments.filter(i => i.symbol && ["stock", "etf", "mutual_fund"].includes(i.asset_type));
+    if (!candidates.length) {
+      notify("Add a Yahoo ticker for a stock/ETF or an AMFI scheme code/ISIN for an Indian mutual fund to enable automatic prices.");
+      return;
+    }
+    setRefreshingPrices(true);
+    let updated = 0;
+    const failures: string[] = [];
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Your login session expired. Sign in again.");
+      for (const investment of candidates) {
+        try {
+          const params = new URLSearchParams({ symbol: investment.symbol || "", type: investment.asset_type });
+          const response = await fetch(`/api/market/quote?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+          const quote = await response.json();
+          if (!response.ok) throw new Error(quote.error || "Quote was unavailable.");
+          const position = calculateInvestmentPosition(investment, investmentTransactions);
+          const price = Number(quote.currentPrice);
+          if (!(price > 0)) throw new Error("Provider returned an invalid price.");
+          const currentValue = position.units * price;
+          const updatedAt = new Date().toISOString();
+          const patch = { current_price: price, current_value: currentValue, units: position.units, invested_amount: position.costBasis, price_updated_at: updatedAt, price_source: String(quote.source || "Market data provider") };
+          const { error } = await supabase.from("mm_investments").update(patch).eq("id", investment.id);
+          if (error) throw error;
+          setInvestments(old => old.map(row => row.id === investment.id ? { ...row, ...patch } : row));
+          updated++;
+        } catch (error) {
+          failures.push(`${investment.name}: ${error instanceof Error ? error.message : "quote failed"}`);
+        }
+      }
+      if (updated && !failures.length) notify(`Updated prices for ${updated} holding${updated === 1 ? "" : "s"}.`);
+      else if (updated) notify(`Updated ${updated} holding${updated === 1 ? "" : "s"}; ${failures.length} could not refresh. Existing prices were kept.`);
+      else notify(failures.slice(0, 2).join(" · ") || "No prices could be refreshed. Enter prices manually if needed.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Price refresh failed.");
+    } finally {
+      setRefreshingPrices(false);
+    }
+  }, [supabase, investments, investmentTransactions]);
+
+  useEffect(() => {
+    if (page === "Investments" && !loading && investments.length > 0 && !autoPriceRefreshStarted) {
+      setAutoPriceRefreshStarted(true);
+      void refreshMarketPrices();
+    }
+  }, [page, loading, investments.length, autoPriceRefreshStarted, refreshMarketPrices]);
+
+  async function saveInvestmentActivity(payload: { action: "buy" | "sell"; units: number; unit_price: number; fees: number; occurred_on: string; notes: string | null }) {
+    if (!supabase || !user || !investmentAction) throw new Error("Sign in to record an investment transaction.");
+    if (payload.action === "sell" && payload.units > investmentAction.units + 1e-8) throw new Error("You cannot sell more units than you currently hold.");
+    const { data, error } = await supabase.from("mm_investment_transactions").insert({
+      ...payload, user_id: user.id, investment_id: investmentAction.id,
+    }).select().single();
+    if (error) throw error;
+    const nextActivities = [...investmentTransactions, data as InvestmentActivity];
+    const nextPosition = calculateInvestmentPosition(investmentAction, nextActivities);
+    const { error: cacheError } = await supabase.from("mm_investments").update({
+      units: nextPosition.units,
+      invested_amount: nextPosition.costBasis,
+      current_value: nextPosition.marketValue,
+    }).eq("id", investmentAction.id);
+    if (cacheError) throw cacheError;
+    setInvestmentTransactions(nextActivities);
+    setInvestments(old => old.map(row => row.id === investmentAction.id ? {
+      ...row, units: nextPosition.units, invested_amount: nextPosition.costBasis, current_value: nextPosition.marketValue,
+    } : row));
+    setInvestmentActionId(null);
+    notify(payload.action === "buy" ? "Purchase recorded." : `Sale recorded. Lifetime realized P/L for this holding: ${formatINR(nextPosition.realizedGain)}.`);
   }
 
   const { start: monthStart, end: monthEnd } = monthRange();
@@ -120,10 +202,16 @@ export default function Home() {
     return { ...account, balance: num(account.opening_balance) + tx.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0) - tx.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0) + adjustment };
   });
   const totalCash = cashBalances.reduce((s,a)=>s+a.balance,0);
-  const invested = investments.reduce((s,i)=>s+num(i.invested_amount),0);
-  const investmentValue = investments.reduce((s,i)=>s+num(i.current_value),0);
+  const investmentPositions: InvestmentPosition[] = useMemo(
+    () => investments.map(investment => calculateInvestmentPosition(investment, investmentTransactions)),
+    [investments, investmentTransactions],
+  );
+  const invested = investmentPositions.reduce((s,i)=>s+i.costBasis,0);
+  const investmentValue = investmentPositions.reduce((s,i)=>s+i.marketValue,0);
+  const realizedInvestmentGain = investmentPositions.reduce((s,i)=>s+i.realizedGain,0);
   const netWorth = totalCash + investmentValue;
-  const gainLoss = investmentValue - invested;
+  const gainLoss = investmentPositions.reduce((s,i)=>s+i.unrealizedGain+i.realizedGain,0);
+  const investmentAction = investmentPositions.find(i=>i.id===investmentActionId) ?? null;
   const currentBudgets = budgets.filter(b=>b.month.slice(0,7)===todayISO().slice(0,7));
   const spentForBudget = (category: string) => thisMonth.filter(t=>t.kind==="expense"&&t.category===category).reduce((s,t)=>s+num(t.amount),0);
   const recentTransactions = [...transactions].sort((a,b)=>b.occurred_on.localeCompare(a.occurred_on)||b.created_at.localeCompare(a.created_at)).slice(0,6);
@@ -162,7 +250,7 @@ export default function Home() {
       {page==="Transactions"&&<TransactionsPage rows={filteredTransactions} accountMap={new Map(accounts.map(a=>[a.id,a.name]))} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filter={transactionFilter} setFilter={setTransactionFilter} onAdd={()=>openTransaction()} onEdit={openTransaction} onDelete={async t=>{if(!window.confirm("Delete this transaction?")||!supabase)return;const {error}=await supabase.from("mm_transactions").delete().eq("id",t.id);if(error)notify(error.message);else{setTransactions(v=>v.filter(x=>x.id!==t.id));notify("Transaction deleted.");}}}/>}
       {page==="Budgets"&&<BudgetsPage budgets={budgets} spend={spentForBudget} onAdd={()=>setModal("budget")} onDelete={async b=>{if(!window.confirm("Delete this budget?")||!supabase)return;const {error}=await supabase.from("mm_budgets").delete().eq("id",b.id);if(error)notify(error.message);else{setBudgets(v=>v.filter(x=>x.id!==b.id));notify("Budget deleted.");}}}/>}
       {page==="Bank accounts"&&<AccountsPage accounts={cashBalances} transactions={transactions} onAdd={()=>setModal("account")} onAdjust={id=>{setSelectedAccountId(id);setModal("adjustment");}} onDelete={async a=>{if(!window.confirm("Delete this account?")||!supabase)return;const {error}=await supabase.from("mm_accounts").delete().eq("id",a.id);if(error)notify(error.message);else{setAccounts(v=>v.filter(x=>x.id!==a.id));notify("Account deleted.");void loadData();}}}/>}
-      {page==="Investments"&&<InvestmentsPage rows={investments} invested={invested} marketValue={investmentValue} gainLoss={gainLoss} onAdd={()=>openInvestment()} onEdit={openInvestment} onDelete={async i=>{if(!window.confirm("Delete this holding?")||!supabase)return;const {error}=await supabase.from("mm_investments").delete().eq("id",i.id);if(error)notify(error.message);else{setInvestments(v=>v.filter(x=>x.id!==i.id));notify("Holding deleted.");}}}/>}
+      {page==="Investments"&&<InvestmentsPage rows={investmentPositions} invested={invested} marketValue={investmentValue} gainLoss={gainLoss} realizedGain={realizedInvestmentGain} refreshingPrices={refreshingPrices} onRefreshPrices={()=>void refreshMarketPrices()} onActivity={i=>setInvestmentActionId(i.id)} onAdd={()=>openInvestment()} onEdit={openInvestment} onDelete={async i=>{if(!window.confirm("Delete this holding and its activity history?")||!supabase)return;const {error}=await supabase.from("mm_investments").delete().eq("id",i.id);if(error)notify(error.message);else{setInvestments(v=>v.filter(x=>x.id!==i.id));setInvestmentTransactions(v=>v.filter(x=>x.investment_id!==i.id));notify("Holding deleted.");}}}/>} 
       </div></main><div className="mobile-nav"><NavItems page={page} setPage={setPage} mobile/></div>
     {modal&&<EntryModal kind={modal} accounts={accounts} selectedAccountId={selectedAccountId} transaction={editingTransaction} investment={editingInvestment} onClose={()=>{setModal(null);setEditingTransaction(null);setEditingInvestment(null);setSelectedAccountId("");}} onSave={async payload=>{
       if(!supabase||!user)return;
@@ -170,11 +258,12 @@ export default function Home() {
         if(modal==="transaction"){const body=payload as Omit<Transaction,"id"|"created_at">;if(editingTransaction){const {data,error}=await supabase.from("mm_transactions").update(body).eq("id",editingTransaction.id).select().single();if(error)throw error;setTransactions(v=>v.map(t=>t.id===editingTransaction.id?data as Transaction:t));}else{const {data,error}=await supabase.from("mm_transactions").insert({...body,user_id:user.id}).select().single();if(error)throw error;setTransactions(v=>[data as Transaction,...v]);}notify(editingTransaction?"Transaction updated.":"Transaction added.");}
         else if(modal==="account"){const body=payload as Omit<Account,"id"|"created_at">;const {data,error}=await supabase.from("mm_accounts").insert({...body,user_id:user.id}).select().single();if(error)throw error;setAccounts(v=>[...v,data as Account]);notify("Account created.");}
         else if(modal==="budget"){const body=payload as Omit<Budget,"id">;const month=new Date();month.setDate(1);const {data,error}=await supabase.from("mm_budgets").upsert({...body,user_id:user.id,month:dateKey(month)},{onConflict:"user_id,category,month"}).select().single();if(error)throw error;setBudgets(v=>[...v.filter(b=>!(b.category===data.category&&b.month.slice(0,7)===data.month.slice(0,7))),data as Budget]);notify("Budget saved.");}
-        else if(modal==="investment"){const body=payload as Omit<Investment,"id">;if(editingInvestment){const {data,error}=await supabase.from("mm_investments").update(body).eq("id",editingInvestment.id).select().single();if(error)throw error;setInvestments(v=>v.map(i=>i.id===editingInvestment.id?data as Investment:i));}else{const {data,error}=await supabase.from("mm_investments").insert({...body,user_id:user.id}).select().single();if(error)throw error;setInvestments(v=>[data as Investment,...v]);}notify(editingInvestment?"Holding updated.":"Investment holding added.");}
+        else if(modal==="investment"){if(editingInvestment){const p=payload as {update:Partial<Investment>};const {data,error}=await supabase.from("mm_investments").update(p.update).eq("id",editingInvestment.id).select().single();if(error)throw error;setInvestments(v=>v.map(i=>i.id===editingInvestment.id?data as Investment:i));notify("Holding updated. Refresh prices to replace a manual quote.");}else{const p=payload as {investment:Omit<Investment,"id">;activity:{action:"buy"|"sell";units:number;unit_price:number;fees:number;occurred_on:string;notes:string|null}};const {data,error}=await supabase.from("mm_investments").insert({...p.investment,user_id:user.id}).select().single();if(error)throw error;const {data:activity,error:activityError}=await supabase.from("mm_investment_transactions").insert({...p.activity,user_id:user.id,investment_id:data.id}).select().single();if(activityError){await supabase.from("mm_investments").delete().eq("id",data.id);throw activityError;}setInvestments(v=>[data as Investment,...v]);setInvestmentTransactions(v=>[...v,activity as InvestmentActivity]);notify("Investment added with its first purchase. Market value will update when a quote is available.");}}
         else if(modal==="adjustment"){const p=payload as {account_id:string;amount:number;note:string;occurred_on:string};const {error}=await supabase.from("mm_account_adjustments").insert({...p,user_id:user.id});if(error)throw error;setAccountAdjustments(v=>[...v,{account_id:p.account_id,amount:p.amount}]);notify("Balance adjustment saved.");}
         setModal(null);setEditingTransaction(null);setEditingInvestment(null);setSelectedAccountId("");
       }catch(err){notify(err instanceof Error?err.message:"Save failed. Check the Supabase schema and RLS policies.");}
     }}/>}
+    {investmentAction&&<InvestmentActivityModal investment={investmentAction} onClose={()=>setInvestmentActionId(null)} onSave={saveInvestmentActivity}/>}
   </div>;
 }
 
@@ -220,8 +309,32 @@ function AccountsPage(p:{accounts:(Account&{balance:number})[];transactions:Tran
  const [selected,setSelected]=useState("all"),listed=selected==="all"?p.accounts:p.accounts.filter(a=>a.account_type===selected);
  return <div><div className="grid metric-grid" style={{marginBottom:16}}><Metric label="Available cash" value={p.accounts.reduce((s,a)=>s+a.balance,0)} note="Across all accounts" icon={Wallet}/><Metric label="Bank accounts" value={String(p.accounts.filter(a=>a.account_type==="bank").length)} note="Tracked manually" icon={Landmark} tone="blue"/><Metric label="Cash & wallets" value={String(p.accounts.filter(a=>a.account_type!=="bank").length)} note="Cash and digital wallets" icon={CreditCard} tone="orange"/><Metric label="Opening balances" value={p.accounts.reduce((s,a)=>s+num(a.opening_balance),0)} note="Previous balance at setup" icon={CircleDollarSign} tone="green"/></div><div className="page-head" style={{alignItems:"center",marginTop:8}}><div><h2 className="panel-title">Your accounts</h2><p className="page-subtitle" style={{fontSize:12,marginTop:5}}>Opening balance + income − expenses + adjustments.</p></div><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add account</button></div><div className="filters" style={{marginBottom:16}}>{[["all","All accounts"],["bank","Banks"],["cash","Cash"],["wallet","Wallets"]].map(([value,label])=><button className={"btn"+(selected===value?" primary":"")} key={value} onClick={()=>setSelected(value)}>{label}</button>)}</div>{listed.length===0?<div className="panel"><div className="empty">No accounts here yet. Add the current or previous balance as an opening balance.</div></div>:<div className="grid account-grid">{listed.map(a=>{const linked=p.transactions.filter(t=>t.account_id===a.id);return <div className="account-card" key={a.id}><div className="account-card-top"><div style={{display:"flex",gap:11,alignItems:"center"}}><div className="metric-icon" style={{background:"#e9f6f1",color:"#16856b"}}>{a.account_type==="bank"?<Landmark size={17}/>:a.account_type==="wallet"?<CreditCard size={17}/>:<Banknote size={17}/>}</div><div><div className="transaction-name">{a.name}</div><div className="transaction-meta">{a.institution||({bank:"Bank account",cash:"Cash",wallet:"Digital wallet"} as Record<string,string>)[a.account_type]||a.account_type}</div></div></div><button className="icon-btn" onClick={()=>p.onDelete(a)} aria-label="Delete account"><MoreHorizontal size={16}/></button></div><div className="account-balance">{formatINR(a.balance)}</div><div className="transaction-meta">Opening balance: {formatINR(num(a.opening_balance))}</div><button className="btn" style={{width:"100%",marginTop:18,fontSize:11}} onClick={()=>p.onAdjust(a.id)}><Pencil size={13}/> Adjust balance</button><div className="transaction-meta" style={{marginTop:12}}>{linked.length} recorded transactions</div></div>})}</div>}</div>;
 }
-function InvestmentsPage(p:{rows:Investment[];invested:number;marketValue:number;gainLoss:number;onAdd:()=>void;onEdit:(i:Investment)=>void;onDelete:(i:Investment)=>void}){
- const [filter,setFilter]=useState("all"),filtered=filter==="all"?p.rows:p.rows.filter(i=>i.asset_type===filter);
+function InvestmentsPage(p:{
+ rows:InvestmentPosition[]; invested:number; marketValue:number; gainLoss:number; realizedGain:number;
+ refreshingPrices:boolean; onRefreshPrices:()=>void; onActivity:(i:InvestmentPosition)=>void; onAdd:()=>void;
+ onEdit:(i:InvestmentPosition)=>void; onDelete:(i:InvestmentPosition)=>void;
+}){
+ const [filter,setFilter]=useState("all");
+ const filtered=filter==="all"?p.rows:p.rows.filter(i=>i.asset_type===filter);
  const groups=(["stock","mutual_fund","etf","gold","other"] as const).map(type=>({type,amount:p.rows.filter(i=>i.asset_type===type).reduce((s,i)=>s+num(i.current_value),0),count:p.rows.filter(i=>i.asset_type===type).length})).filter(g=>g.count>0);
- return <div><div className="grid metric-grid" style={{marginBottom:16}}><Metric label="Portfolio value" value={p.marketValue} note="Current value entered by you" icon={ChartNoAxesCombined}/><Metric label="Total invested" value={p.invested} note="Acquisition cost" icon={CircleDollarSign} tone="blue"/><Metric label="Gain / loss" value={`${p.gainLoss>=0?"+":"−"}${formatINR(Math.abs(p.gainLoss))}`} note={p.invested?`${(p.gainLoss/p.invested*100).toFixed(1)}% return on cost`:"Add holdings to calculate return"} icon={p.gainLoss>=0?TrendingUp:TrendingDown} tone={p.gainLoss>=0?"green":"red"}/><Metric label="Holdings" value={String(p.rows.length)} note="Stocks, funds, ETFs and gold" icon={Layers3} tone="orange"/></div><section className="panel" style={{marginBottom:16}}><div className="panel-head"><div><h2 className="panel-title">Investment allocation</h2><div className="panel-subtitle">By current value · separate from bank cash</div></div><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add investment</button></div><div className="panel-body">{groups.length===0?<div className="empty">Add stocks, mutual funds, ETFs, or gold to start tracking your portfolio.</div>:<><div className="progress" style={{height:10,display:"flex",marginBottom:18}}>{groups.map((g,index)=>{const colors=["#16856b","#4b71e8","#d9913b","#b59adb","#d95b64"];return <span key={g.type} style={{width:`${p.marketValue?g.amount/p.marketValue*100:0}%`,background:colors[index]}}/>})}</div><div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr)",gap:13}}>{groups.map((g,index)=>{const colors=["#16856b","#4b71e8","#d9913b","#b59adb","#d95b64"];return <div key={g.type} style={{padding:"12px 13px",background:"#fafbfc",borderRadius:10}}><div style={{display:"flex",alignItems:"center",gap:7,fontSize:11,color:"#747b89"}}><span className="dot" style={{background:colors[index],margin:0}}/>{assetLabels[g.type]}</div><div style={{fontSize:17,fontWeight:750,marginTop:9}}>{formatINR(g.amount)}</div><div className="transaction-meta">{p.marketValue?Math.round(g.amount/p.marketValue*100):0}% of portfolio</div></div>})}</div></>}</div></section><section className="panel"><div className="panel-head"><div><h2 className="panel-title">Your holdings</h2><div className="panel-subtitle">Manually maintained values; no broker sync</div></div></div><div className="panel-body"><div className="filters" style={{marginBottom:16}}><select className="search" value={filter} onChange={e=>setFilter(e.target.value)} style={{width:"auto"}}><option value="all">All asset types</option><option value="stock">Stocks</option><option value="mutual_fund">Mutual funds</option><option value="etf">ETFs</option><option value="gold">Gold</option><option value="other">Other</option></select></div>{filtered.length===0?<div className="empty">No investments match this filter.</div>:<div className="table-wrap"><table className="data-table"><thead><tr><th>Asset</th><th>Platform</th><th className="right">Invested</th><th className="right">Current value</th><th className="right">Gain / loss</th><th></th></tr></thead><tbody>{filtered.map(i=>{const delta=num(i.current_value)-num(i.invested_amount),Icon=assetIcons[i.asset_type];return <tr key={i.id}><td><div style={{display:"flex",alignItems:"center",gap:10}}><div className="metric-icon" style={{background:"#eef2ff",color:"#4b71e8",width:32,height:32}}><Icon size={15}/></div><div><div style={{fontWeight:700}}>{i.name}</div><div className="transaction-meta">{assetLabels[i.asset_type]}{i.symbol?` · ${i.symbol}`:""}</div></div></div></td><td>{i.platform||"—"}</td><td className="right">{formatINR(num(i.invested_amount))}</td><td className="right" style={{fontWeight:700}}>{formatINR(num(i.current_value))}</td><td className="right" style={{color:delta>=0?"#16856b":"#d95b64"}}>{delta>=0?"+":"−"}{formatINR(Math.abs(delta))}</td><td><div style={{display:"flex",gap:5}}><button className="icon-btn" aria-label="Edit holding" onClick={()=>p.onEdit(i)}><Pencil size={13}/></button><button className="icon-btn" aria-label="Delete holding" onClick={()=>p.onDelete(i)}><Trash2 size={13}/></button></div></td></tr>})}</tbody></table></div>}</div></section></div>;
+ const unrealized=p.marketValue-p.invested;
+ return <div>
+  <div className="grid metric-grid" style={{marginBottom:16}}>
+   <Metric label="Market value" value={p.marketValue} note="Units × latest saved price" icon={ChartNoAxesCombined}/>
+   <Metric label="Cost basis held" value={p.invested} note="Weighted-average cost of units still held" icon={CircleDollarSign} tone="blue"/>
+   <Metric label="Unrealized P/L" value={`${unrealized>=0?"+":"−"}${formatINR(Math.abs(unrealized))}`} note={p.invested?`${(unrealized/p.invested*100).toFixed(1)}% on open positions`:"Add purchases to calculate"} icon={unrealized>=0?TrendingUp:TrendingDown} tone={unrealized>=0?"green":"red"}/>
+   <Metric label="Realized P/L" value={`${p.realizedGain>=0?"+":"−"}${formatINR(Math.abs(p.realizedGain))}`} note="From recorded sales" icon={Activity} tone={p.realizedGain>=0?"green":"red"}/>
+  </div>
+  <section className="panel" style={{marginBottom:16}}>
+   <div className="panel-head"><div><h2 className="panel-title">Investment allocation</h2><div className="panel-subtitle">By current value · separate from bank cash</div></div><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add investment</button></div>
+   <div className="panel-body">{groups.length===0?<div className="empty">Add stocks, mutual funds, ETFs, or gold to start tracking your portfolio.</div>:<><div className="progress" style={{height:10,display:"flex",marginBottom:18}}>{groups.map((g,index)=>{const colors=["#16856b","#4b71e8","#d9913b","#b59adb","#d95b64"];return <span key={g.type} style={{width:`${p.marketValue?g.amount/p.marketValue*100:0}%`,background:colors[index]}}/>})}</div><div className="grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:13}}>{groups.map((g,index)=>{const colors=["#16856b","#4b71e8","#d9913b","#b59adb","#d95b64"];return <div key={g.type} style={{padding:"12px 13px",background:"#fafbfc",borderRadius:10}}><div style={{display:"flex",alignItems:"center",gap:7,fontSize:11,color:"#747b89"}}><span className="dot" style={{background:colors[index],margin:0}}/>{assetLabels[g.type]}</div><div style={{fontSize:17,fontWeight:750,marginTop:9}}>{formatINR(g.amount)}</div><div className="transaction-meta">{p.marketValue?Math.round(g.amount/p.marketValue*100):0}% of portfolio</div></div>})}</div></>}</div>
+  </section>
+  <section className="panel">
+   <div className="panel-head"><div><h2 className="panel-title">Your holdings</h2><div className="panel-subtitle">Record dated buys/sells and update prices from market data</div></div><div className="filters"><button className="btn" onClick={p.onRefreshPrices} disabled={p.refreshingPrices}>{p.refreshingPrices?<LoaderCircle size={14} className="spin"/>:<Activity size={14}/>} {p.refreshingPrices?"Refreshing…":"Refresh prices"}</button><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add investment</button></div></div>
+   <div className="panel-body">
+    <div className="filters" style={{marginBottom:16}}><select className="search" value={filter} onChange={e=>setFilter(e.target.value)} style={{width:"auto"}}><option value="all">All asset types</option><option value="stock">Stocks</option><option value="mutual_fund">Mutual funds</option><option value="etf">ETFs</option><option value="gold">Gold</option><option value="other">Other</option></select><span className="transaction-meta">Yahoo Finance quotes are unofficial and may be delayed; Indian mutual funds use AMFI NAV. Manual prices are available.</span></div>
+    {filtered.length===0?<div className="empty">No holdings match this filter. Add an asset and its first purchase.</div>:<div className="table-wrap"><table className="data-table"><thead><tr><th>Asset</th><th>Units</th><th className="right">Avg. cost</th><th className="right">Price / unit</th><th className="right">Market value</th><th className="right">Unrealized P/L</th><th>Price source</th><th></th></tr></thead><tbody>{filtered.map(i=>{const delta=i.unrealizedGain,Icon=assetIcons[i.asset_type];return <tr key={i.id}><td><div style={{display:"flex",alignItems:"center",gap:10}}><div className="metric-icon" style={{background:"#eef2ff",color:"#4b71e8",width:32,height:32}}><Icon size={15}/></div><div><div style={{fontWeight:700}}>{i.name}</div><div className="transaction-meta">{assetLabels[i.asset_type]}{i.symbol?` · ${i.symbol}`:""}</div></div></div></td><td>{i.units.toLocaleString("en-IN",{maximumFractionDigits:6})}</td><td className="right">{formatINR(i.units>0?i.costBasis/i.units:0)}</td><td className="right">{i.current_price>0?formatINR(i.current_price):"—"}</td><td className="right" style={{fontWeight:700}}>{formatINR(i.marketValue)}</td><td className="right" style={{color:delta>=0?"#16856b":"#d95b64"}}>{delta>=0?"+":"−"}{formatINR(Math.abs(delta))}</td><td><div>{i.price_source||"Manual / not refreshed"}</div><div className="transaction-meta">{i.price_updated_at?new Date(i.price_updated_at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"No quote timestamp"}</div></td><td><div style={{display:"flex",gap:5}}><button className="icon-btn" aria-label="Record buy or sell" title="Record buy or sell" onClick={()=>p.onActivity(i)}><ArrowLeftRight size={13}/></button><button className="icon-btn" aria-label="Edit holding" title="Edit holding / current price" onClick={()=>p.onEdit(i)}><Pencil size={13}/></button><button className="icon-btn" aria-label="Delete holding" title="Delete holding" onClick={()=>p.onDelete(i)}><Trash2 size={13}/></button></div></td></tr>})}</tbody></table></div>}
+   </div>
+  </section>
+ </div>;
 }
