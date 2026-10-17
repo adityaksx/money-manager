@@ -5,6 +5,7 @@ import { Activity, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChartN
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatINR, monthRange } from "@/lib/format";
+import EntryModal from "@/app/entry-modal";
 
 type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investments";
 type Account = { id: string; name: string; account_type: string; institution: string | null; opening_balance: number; color: string; created_at: string };
