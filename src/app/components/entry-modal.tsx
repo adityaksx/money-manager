@@ -79,12 +79,12 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
   <Field label="Account type"><Select value={accountType} onChange={setAccountType}><option value="bank">Bank account</option><option value="cash">Cash</option><option value="wallet">Digital wallet</option></Select></Field>
   <Field label="Bank / institution"><Input value={institution} onChange={setInstitution} placeholder="e.g. Canara Bank"/></Field>
   <Field label="Previous / opening balance (₹)"><Input value={openingBalance} onChange={setOpeningBalance} type="number" min="0" step="0.01" required/></Field>
-  <Field label="Currency" full><input style={{...control,background:"#f8f9fb"}} value="Indian Rupee (INR)" readOnly/></Field>
+  <Field label="Currency" full><input style={{...controlStyle,background:"#f8f9fb"}} value="Indian Rupee (INR)" readOnly/></Field>
  </>}
  {kind==="budget"&&<>
   <Field label="Expense category"><Select value={budgetCategory} onChange={setBudgetCategory}>{categories.filter(c=>!["Salary","Freelance"].includes(c)).map(c=><option key={c}>{c}</option>)}</Select></Field>
   <Field label="Monthly limit (₹)"><Input value={budgetLimit} onChange={setBudgetLimit} type="number" min="1" step="1" placeholder="5000" required/></Field>
-  <Field label="Budget period" full><input style={{...control,background:"#f8f9fb"}} readOnly value={new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}/></Field>
+  <Field label="Budget period" full><input style={{...controlStyle,background:"#f8f9fb"}} readOnly value={new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}/></Field>
  </>}
  {kind==="investment"&&<>
   <Field label="Asset class"><Select value={assetType} onChange={v=>setAssetType(v as Investment["asset_type"])}><option value="stock">Stock</option><option value="mutual_fund">Mutual fund</option><option value="etf">ETF</option><option value="gold">Gold</option><option value="other">Other</option></Select></Field>
