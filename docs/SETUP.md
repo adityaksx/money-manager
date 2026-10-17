@@ -12,7 +12,7 @@ Money Manager uses its own Supabase project, separate from FlowLedger.
 - Investments are assets with a dated buy/sell activity ledger in `mm_investment_transactions`.
 - Cost basis and realized profit/loss use weighted-average cost. Open-position market value is units multiplied by the latest saved price.
 - Stocks/ETFs currently use an unofficial Yahoo Finance chart endpoint through a server-side adapter. It can change, fail, or rate-limit. Yahoo terms restrict automated data collection without prior permission, so this integration is a personal-use prototype, not a licensed or guaranteed market-data service. Check the current Yahoo terms before use; do not rely on this adapter for a public/commercial product without permission or a properly licensed provider. Quotes may be delayed.
-- Indian mutual funds use AMFI NAV feeds. The symbol should be an AMFI scheme code or ISIN.
+- Indian mutual funds use AMFI's daily NAV feed for the latest NAV. Date-specific historical NAV is looked up through MFAPI.in by scheme code; an ISIN is resolved to its current AMFI code first. These public data sources can be stale, unavailable, or change format, so a missing historical price must be entered manually.
 - Automatic price lookups require an Indian rupee quote for now. Foreign-currency stocks are not converted into INR automatically, to avoid misleading portfolio totals.
 - Gold, other assets, and unsupported tickers can use a manual per-unit price. If a historical quote is unavailable, enter the buy price manually.
 - No broker account is connected. User-entered transaction history remains the source of units and cost basis.
