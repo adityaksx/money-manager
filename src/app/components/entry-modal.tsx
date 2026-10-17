@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { CSSProperties } from "react";
 import { dateKey, todayISO } from "@/lib/format";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Account = { id:string; name:string; account_type:string; opening_balance:number };
 type Transaction = { id:string; account_id:string|null; kind:"income"|"expense"; amount:number; category:string; description:string; occurred_on:string; created_at:string };
-type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"other"; name:string; symbol:string|null; platform:string|null; units:number; invested_amount:number; current_value:number; purchase_date:string; notes:string|null };
+type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"other"; name:string; symbol:string|null; platform:string|null; exchange?:string|null; units:number; invested_amount:number; current_value:number; current_price?:number|null; price_updated_at?:string|null; price_source?:string|null; purchase_date:string; notes:string|null };
 type Kind = "transaction"|"account"|"budget"|"investment"|"adjustment";
 const categories = ["Salary","Freelance","Food & drinks","Groceries","Transport","Shopping","Bills","Education","Entertainment","Health","Rent","Investment","Other"];
 
@@ -25,7 +26,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  const [name,setName]=useState(""); const [accountType,setAccountType]=useState("bank"); const [institution,setInstitution]=useState("");
  const [openingBalance,setOpeningBalance]=useState("0"); const [category,setCategory]=useState(transaction?.category??"Food & drinks");
  const [amount,setAmount]=useState(transaction?String(transaction.amount):""); const [description,setDescription]=useState(transaction?.description??"");
- const [date,setDate]=useState(transaction?.occurred_on??todayISO());
+ const [date,setDate]=useState(transaction?.occurred_on??investment?.purchase_date??todayISO());
  const [budgetCategory,setBudgetCategory]=useState("Food & drinks"); const [budgetLimit,setBudgetLimit]=useState("");
  const [assetType,setAssetType]=useState<Investment["asset_type"]>(investment?.asset_type??"stock");
  const [assetName,setAssetName]=useState(investment?.name??""); const [symbol,setSymbol]=useState(investment?.symbol??"");
@@ -33,6 +34,10 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  const [investedAmount,setInvestedAmount]=useState(investment?String(investment.invested_amount):"");
  const [currentValue,setCurrentValue]=useState(investment?String(investment.current_value):"");
  const [notes,setNotes]=useState(investment?.notes??""); const [adjustmentAmount,setAdjustmentAmount]=useState("");
+ const [exchange,setExchange]=useState(investment?.exchange??"");
+ const [fees,setFees]=useState("0");
+ const [purchasePrice,setPurchasePrice]=useState(investment&&investment.units>0?String(investment.invested_amount/investment.units):"");
+ const [currentPrice,setCurrentPrice]=useState(investment?.current_price?String(investment.current_price):investment&&investment.units>0?String(investment.current_value/investment.units):"");
  const [adjustmentNote,setAdjustmentNote]=useState("Balance correction");
  useEffect(()=>{if(selectedAccountId)setAccountId(selectedAccountId);},[selectedAccountId]);
  const title:Record<Kind,string>={transaction:transaction?"Edit transaction":"Add transaction",account:"Add account",budget:"Set monthly budget",investment:investment?"Edit investment":"Add investment",adjustment:"Adjust account balance"};
@@ -53,8 +58,43 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
     payload={category:budgetCategory,monthly_limit:Number(budgetLimit),month:dateKey(new Date(new Date().getFullYear(),new Date().getMonth(),1))};
    }else if(kind==="investment"){
     if(!assetName.trim())throw new Error("Enter the investment name.");
-    if(Number(investedAmount)<0||Number(currentValue)<0)throw new Error("Values cannot be negative.");
-    payload={asset_type:assetType,name:assetName.trim(),symbol:symbol.trim()||null,platform:platform.trim()||null,units:Number(units||0),invested_amount:Number(investedAmount||0),current_value:Number(currentValue||0),purchase_date:date,notes:notes.trim()||null};
+    const quantity=Number(units);
+    const charges=Number(fees||0);
+    if(!Number.isFinite(quantity)||quantity<=0)throw new Error("Enter units greater than zero.");
+    if(!Number.isFinite(charges)||charges<0)throw new Error("Fees cannot be negative.");
+    let unitPrice=Number(purchasePrice||0);
+    let marketPrice=Number(currentPrice||0);
+    let quoteSource="Manual price";
+    let quoteDate:string|null=null;
+
+    if(!investment){
+     if(symbol.trim()&&["stock","etf","mutual_fund"].includes(assetType)&&(!unitPrice||!marketPrice)){
+      try{
+       const client=getSupabaseBrowserClient();
+       const {data:sessionData}=await client?.auth.getSession()??{data:{session:null}};
+       if(!sessionData.session?.access_token)throw new Error("Your login session expired. Sign in again.");
+       const params=new URLSearchParams({symbol:symbol.trim(),type:assetType,date});
+       const response=await fetch(`/api/market/quote?${params.toString()}`,{headers:{Authorization:`Bearer ${sessionData.session.access_token}`}});
+       const quote=await response.json();
+       if(!response.ok)throw new Error(quote.error||"Market quote unavailable.");
+       if(!unitPrice&&Number(quote.historicalPrice)>0)unitPrice=Number(quote.historicalPrice);
+       if(!marketPrice&&Number(quote.currentPrice)>0)marketPrice=Number(quote.currentPrice);
+       quoteSource=String(quote.source||quoteSource);
+       quoteDate=quote.currentDate??null;
+      }catch(quoteError){
+       if(!unitPrice)throw new Error(quoteError instanceof Error?quoteError.message:"Could not fetch the purchase-date price. Enter it manually.");
+      }
+     }
+     if(!Number.isFinite(unitPrice)||unitPrice<=0)throw new Error("Purchase price was not found for that date. Enter the price per unit manually.");
+     if(!Number.isFinite(marketPrice)||marketPrice<=0){marketPrice=unitPrice;quoteSource="Manual price (purchase price used until refreshed)";}
+     payload={
+      investment:{asset_type:assetType,name:assetName.trim(),symbol:symbol.trim()||null,platform:platform.trim()||null,exchange:exchange.trim()||null,units:quantity,invested_amount:quantity*unitPrice+charges,current_value:quantity*marketPrice,current_price:marketPrice,price_source:quoteSource,price_updated_at:quoteDate?new Date(quoteDate+"T12:00:00Z").toISOString():new Date().toISOString(),purchase_date:date,notes:notes.trim()||null},
+      activity:{action:"buy",units:quantity,unit_price:unitPrice,fees:charges,occurred_on:date,notes:notes.trim()||null}
+     };
+    }else{
+     if(!Number.isFinite(marketPrice)||marketPrice<=0)throw new Error("Enter a valid current price per unit.");
+     payload={update:{asset_type:assetType,name:assetName.trim(),symbol:symbol.trim()||null,platform:platform.trim()||null,exchange:exchange.trim()||null,current_price:marketPrice,current_value:quantity*marketPrice,price_source:"Manual price",price_updated_at:new Date().toISOString(),notes:notes.trim()||null}};
+    }
    }else{
     if(!selectedAccountId&&!accountId)throw new Error("Choose an account.");
     if(!adjustmentAmount||Number(adjustmentAmount)===0)throw new Error("Enter a non-zero adjustment. Use negative values to reduce the balance.");
@@ -87,15 +127,20 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
   <Field label="Budget period" full><input style={{...controlStyle,background:"#f8f9fb"}} readOnly value={new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}/></Field>
  </>}
  {kind==="investment"&&<>
-  <Field label="Asset class"><Select value={assetType} onChange={v=>setAssetType(v as Investment["asset_type"])}><option value="stock">Stock</option><option value="mutual_fund">Mutual fund</option><option value="etf">ETF</option><option value="gold">Gold</option><option value="other">Other</option></Select></Field>
-  <Field label="Name"><Input value={assetName} onChange={setAssetName} placeholder="e.g. Nifty 50 ETF" required/></Field>
-  <Field label="Symbol / scheme"><Input value={symbol} onChange={setSymbol} placeholder="e.g. GOLDBEES"/></Field>
+  <Field label="Asset class"><Select value={assetType} onChange={v=>setAssetType(v as Investment["asset_type"])}><option value="stock">Stock</option><option value="mutual_fund">Mutual fund (India)</option><option value="etf">ETF</option><option value="gold">Gold</option><option value="other">Other</option></Select></Field>
+  <Field label="Investment name"><Input value={assetName} onChange={setAssetName} placeholder="e.g. Reliance Industries" required/></Field>
+  <Field label={assetType==="mutual_fund"?"AMFI scheme code / ISIN":"Market symbol"}><Input value={symbol} onChange={setSymbol} placeholder={assetType==="mutual_fund"?"e.g. 120586 or INF109K01480":assetType==="stock"||assetType==="etf"?"e.g. RELIANCE.NS, GOLDBEES.NS, AAPL":"Optional"}/></Field>
+  <Field label="Exchange / market"><Select value={exchange} onChange={setExchange}><option value="">Not specified</option><option value="NSE">NSE (India)</option><option value="BSE">BSE (India)</option><option value="NASDAQ">NASDAQ / US</option><option value="NYSE">NYSE / US</option><option value="OTHER">Other</option></Select></Field>
   <Field label="Platform / broker"><Input value={platform} onChange={setPlatform} placeholder="e.g. Zerodha, Groww"/></Field>
-  <Field label="Invested amount (₹)"><Input value={investedAmount} onChange={setInvestedAmount} type="number" min="0" step="0.01" required/></Field>
-  <Field label="Current value (₹)"><Input value={currentValue} onChange={setCurrentValue} type="number" min="0" step="0.01" required/></Field>
-  <Field label="Units (optional)"><Input value={units} onChange={setUnits} type="number" min="0" step="0.000001" placeholder="0"/></Field>
-  <Field label="As of / purchase date"><Input value={date} onChange={setDate} type="date" required/></Field>
-  <Field label="Notes" full><Input value={notes} onChange={setNotes} placeholder="Optional notes"/></Field>
+  {!investment&&<>
+   <Field label="Buy date"><Input value={date} onChange={setDate} type="date" required/></Field>
+   <Field label="Units purchased"><Input value={units} onChange={setUnits} type="number" min="0.000001" step="0.000001" placeholder="e.g. 10" required/></Field>
+   <Field label="Purchase price per unit (₹)"><Input value={purchasePrice} onChange={setPurchasePrice} type="number" min="0" step="0.000001" placeholder="Leave blank to fetch history"/></Field>
+   <Field label="Fees / taxes (₹)"><Input value={fees} onChange={setFees} type="number" min="0" step="0.01" placeholder="0"/></Field>
+  </>}
+  <Field label="Current price per unit (₹)"><Input value={currentPrice} onChange={setCurrentPrice} type="number" min="0" step="0.000001" placeholder={investment?"Enter a manual price":"Leave blank to fetch latest price"}/></Field>
+  <Field label="Notes" full><Input value={notes} onChange={setNotes} placeholder="Optional note"/></Field>
+  <p className="transaction-meta" style={{gridColumn:"1/-1",lineHeight:1.5,margin:0}}>{investment?"Saving a manual current price updates this holding; use Refresh prices to fetch the provider quote again.":"Leave the purchase price blank to look up the price around your buy date. Stocks/ETFs use Yahoo Finance symbols; Indian mutual funds use an AMFI scheme code or ISIN. If a quote is unavailable, enter prices manually."}</p>
  </>}
  {kind==="adjustment"&&<>
   <Field label="Account" full><Select value={selectedAccountId||accountId} onChange={setAccountId}>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
