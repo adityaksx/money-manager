@@ -219,14 +219,16 @@ export default function Home() {
     const now = new Date(), start = dateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)), end = dateKey(new Date(now.getFullYear(), now.getMonth(), 1));
     return transactions.filter(t => t.occurred_on >= start && t.occurred_on < end);
   }, [transactions]);
+  const netExpense = (t:Transaction) => Math.max(0,num(t.amount)-(refundTotals.get(t.id)??0));
   const income = thisMonth.filter(t => t.kind === "income").reduce((s,t) => s + num(t.amount), 0);
-  const expense = thisMonth.filter(t => t.kind === "expense").reduce((s,t) => s + num(t.amount), 0);
+  const expense = thisMonth.filter(t => t.kind === "expense").reduce((s,t) => s + netExpense(t), 0);
   const lastMonthIncome = lastMonthTransactions.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0);
-  const lastMonthExpense = lastMonthTransactions.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0);
+  const lastMonthExpense = lastMonthTransactions.filter(t=>t.kind==="expense").reduce((s,t)=>s+netExpense(t),0);
   const cashBalances = accounts.map(account => {
     const tx = transactions.filter(t=>t.account_id===account.id);
     const adjustment = accountAdjustments.filter(a=>a.account_id===account.id).reduce((s,a)=>s+num(a.amount),0);
-    return { ...account, balance: num(account.opening_balance) + tx.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0) - tx.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0) + adjustment };
+    const returned = refunds.filter(refund=>tx.some(t=>t.id===refund.transaction_id)).reduce((s,refund)=>s+num(refund.amount),0);
+    return { ...account, balance: num(account.opening_balance) + tx.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0) - tx.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0) + returned + adjustment };
   });
   const totalCash = cashBalances.reduce((s,a)=>s+a.balance,0);
   const investmentPositions: InvestmentPosition[] = useMemo(
@@ -240,22 +242,27 @@ export default function Home() {
   const gainLoss = investmentPositions.reduce((s,i)=>s+i.unrealizedGain+i.realizedGain,0);
   const investmentAction = investmentPositions.find(i=>i.id===investmentActionId) ?? null;
   const currentBudgets = budgets.filter(b=>b.month.slice(0,7)===todayISO().slice(0,7));
-  const spentForBudget = (category: string) => thisMonth.filter(t=>t.kind==="expense"&&t.category===category).reduce((s,t)=>s+num(t.amount),0);
+  const spentForBudget = (category: string) => thisMonth.filter(t=>t.kind==="expense"&&t.category===category).reduce((s,t)=>s+netExpense(t),0);
   const recentTransactions = [...transactions].sort((a,b)=>b.occurred_on.localeCompare(a.occurred_on)||b.created_at.localeCompare(a.created_at)).slice(0,6);
   const chartData = useMemo(() => {
     const now = new Date();
     if (period === "This month") {
       return Array.from({length:Math.min(now.getDate(),31)},(_,idx)=>{
         const d=idx+1, date=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
-        return {label:String(d),income:thisMonth.filter(t=>t.kind==="income"&&t.occurred_on===date).reduce((s,t)=>s+num(t.amount),0),expense:thisMonth.filter(t=>t.kind==="expense"&&t.occurred_on===date).reduce((s,t)=>s+num(t.amount),0)};
+        return {label:String(d),income:thisMonth.filter(t=>t.kind==="income"&&t.occurred_on===date).reduce((s,t)=>s+num(t.amount),0),expense:thisMonth.filter(t=>t.kind==="expense"&&t.occurred_on===date).reduce((s,t)=>s+netExpense(t),0)};
       });
     }
     return Array.from({length:6},(_,idx)=>{
       const date=new Date(now.getFullYear(),now.getMonth()-5+idx,1),key=dateKey(date).slice(0,7),rows=transactions.filter(t=>t.occurred_on.slice(0,7)===key);
-      return {label:date.toLocaleDateString("en-IN",{month:"short"}),income:rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0),expense:rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0)};
+      return {label:date.toLocaleDateString("en-IN",{month:"short"}),income:rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0),expense:rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+netExpense(t),0)};
     });
-  }, [period,transactions,thisMonth]);
-  const expenseByCategory = expenseCategories.map(category=>({category,amount:thisMonth.filter(t=>t.kind==="expense"&&t.category===category).reduce((s,t)=>s+num(t.amount),0)})).filter(r=>r.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,5);
+  }, [period,transactions,thisMonth,refundTotals]);
+  const expenseByCategory = categories.filter(c=>c.kind==="expense").map(({name:category})=>({category,amount:thisMonth.filter(t=>t.kind==="expense"&&t.category===category).reduce((s,t)=>s+netExpense(t),0)})).filter(r=>r.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,5);
+  const debtPositions: DebtPosition[] = debts.map(debt => {
+    const repayments = debtRepayments.filter(r=>r.debt_id===debt.id);
+    const repaid = repayments.reduce((s,r)=>s+num(r.amount),0);
+    return {...debt,repaid,outstanding:Math.max(0,num(debt.amount)-repaid),repayments};
+  });
   const filteredTransactions = transactions.filter(t=>{
     const matchesType=transactionFilter==="all"||t.kind===transactionFilter,term=searchTerm.toLowerCase();
     return matchesType&&(!term||[t.description,t.category,t.kind].some(s=>s.toLowerCase().includes(term)));
