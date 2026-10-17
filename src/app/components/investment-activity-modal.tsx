@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, TrendingDown, TrendingUp } from "lucide-react";
 import { todayISO } from "@/lib/format";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { InvestmentPosition } from "@/lib/investment-portfolio";
 
 export default function InvestmentActivityModal({
@@ -21,7 +22,45 @@ export default function InvestmentActivityModal({
   const [date, setDate] = useState(todayISO());
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [priceLookupBusy, setPriceLookupBusy] = useState(false);
+  const [priceLookupNote, setPriceLookupNote] = useState("");
   const [error, setError] = useState("");
+
+  async function lookupPriceForDate() {
+    if (!investment.symbol || !["stock", "etf", "mutual_fund"].includes(investment.asset_type)) {
+      setPriceLookupNote("This holding needs a market symbol to look up a historical price. Enter the price manually.");
+      return;
+    }
+    setPriceLookupBusy(true);
+    setPriceLookupNote("");
+    setError("");
+    try {
+      const client = getSupabaseBrowserClient();
+      const { data } = await client?.auth.getSession() ?? { data: { session: null } };
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Your sign-in session expired. Sign in again.");
+      const params = new URLSearchParams({
+        symbol: investment.symbol,
+        type: investment.asset_type,
+        date,
+        exchange: investment.exchange || "",
+      });
+      const response = await fetch(`/api/market/quote?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const quote = await response.json();
+      if (!response.ok) throw new Error(quote.error || "Could not find a historical quote.");
+      if (!(Number(quote.historicalPrice) > 0)) {
+        throw new Error("No historical closing price found for that date. Enter the transaction price manually.");
+      }
+      setPrice(String(quote.historicalPrice));
+      setPriceLookupNote(`Loaded ${Number(quote.historicalPrice).toLocaleString("en-IN")} from ${quote.source}, dated ${quote.historicalDate || date}. Check that the quote matches your actual execution price.`);
+    } catch (error) {
+      setPriceLookupNote(error instanceof Error ? error.message : "Could not look up that price. Enter it manually.");
+    } finally {
+      setPriceLookupBusy(false);
+    }
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -64,8 +103,10 @@ export default function InvestmentActivityModal({
               <input id="activity-units" type="number" min="0.000001" step="0.000001" value={units} onChange={event => setUnits(event.target.value)} placeholder="e.g. 10" required />
             </div>
             <div className="field">
-              <label htmlFor="activity-price">Price per unit (₹)</label>
-              <input id="activity-price" type="number" min="0.000001" step="0.000001" value={price} onChange={event => setPrice(event.target.value)} placeholder="Enter price" required />
+              <label htmlFor="activity-price">{action === "sell" ? "Sale price per unit (₹)" : "Purchase price per unit (₹)"}</label>
+              <input id="activity-price" type="number" min="0.000001" step="0.000001" value={price} onChange={event => setPrice(event.target.value)} placeholder="Enter execution price" required />
+              <button className="btn" type="button" onClick={lookupPriceForDate} disabled={priceLookupBusy || !investment.symbol || !["stock", "etf", "mutual_fund"].includes(investment.asset_type)}>{priceLookupBusy ? "Looking up…" : "Get price for selected date"}</button>
+              {priceLookupNote && <div className="transaction-meta" style={{ lineHeight: 1.5 }}>{priceLookupNote}</div>}
             </div>
             <div className="field">
               <label htmlFor="activity-fees">Fees (₹)</label>
