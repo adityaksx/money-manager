@@ -32,7 +32,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  const [assetName,setAssetName]=useState(investment?.name??""); const [symbol,setSymbol]=useState(investment?.symbol??"");
  const [platform,setPlatform]=useState(investment?.platform??""); const [units,setUnits]=useState(investment?String(investment.units):"");
  const [notes,setNotes]=useState(investment?.notes??""); const [adjustmentAmount,setAdjustmentAmount]=useState("");
- const [exchange,setExchange]=useState(investment?.exchange??"");
+ const [exchange,setExchange]=useState(investment?.exchange??"NSE");
  const [fees,setFees]=useState("0");
  const [purchasePrice,setPurchasePrice]=useState(investment&&investment.units>0?String(investment.invested_amount/investment.units):"");
  const [currentPrice,setCurrentPrice]=useState(investment?.current_price?String(investment.current_price):investment&&investment.units>0?String(investment.current_value/investment.units):"");
@@ -71,7 +71,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
        const client=getSupabaseBrowserClient();
        const {data:sessionData}=await client?.auth.getSession()??{data:{session:null}};
        if(!sessionData.session?.access_token)throw new Error("Your login session expired. Sign in again.");
-       const params=new URLSearchParams({symbol:symbol.trim(),type:assetType,date});
+       const params=new URLSearchParams({symbol:symbol.trim(),type:assetType,date,exchange});
        const response=await fetch(`/api/market/quote?${params.toString()}`,{headers:{Authorization:`Bearer ${sessionData.session.access_token}`}});
        const quote=await response.json();
        if(!response.ok)throw new Error(quote.error||"Market quote unavailable.");
@@ -127,7 +127,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  {kind==="investment"&&<>
   <Field label="Asset class"><Select value={assetType} onChange={v=>setAssetType(v as Investment["asset_type"])}><option value="stock">Stock</option><option value="mutual_fund">Mutual fund (India)</option><option value="etf">ETF</option><option value="gold">Gold</option><option value="other">Other</option></Select></Field>
   <Field label="Investment name"><Input value={assetName} onChange={setAssetName} placeholder="e.g. Reliance Industries" required/></Field>
-  <Field label={assetType==="mutual_fund"?"AMFI scheme code / ISIN":"Market symbol"}><Input value={symbol} onChange={setSymbol} placeholder={assetType==="mutual_fund"?"e.g. 120586 or INF109K01480":assetType==="stock"||assetType==="etf"?"e.g. RELIANCE.NS, GOLDBEES.NS, AAPL":"Optional"}/></Field>
+  <Field label={assetType==="mutual_fund"?"AMFI scheme code / ISIN":"Market symbol"}><Input value={symbol} onChange={setSymbol} placeholder={assetType==="mutual_fund"?"e.g. 120586 or INF109K01480":assetType==="stock"||assetType==="etf"?"e.g. RELIANCE, TCS, GOLDBEES":"Optional"}/></Field>
   <Field label="Exchange / market"><Select value={exchange} onChange={setExchange}><option value="">Not specified</option><option value="NSE">NSE (India)</option><option value="BSE">BSE (India)</option><option value="NASDAQ">NASDAQ / US</option><option value="NYSE">NYSE / US</option><option value="OTHER">Other</option></Select></Field>
   <Field label="Platform / broker"><Input value={platform} onChange={setPlatform} placeholder="e.g. Zerodha, Groww"/></Field>
   {!investment&&<>
