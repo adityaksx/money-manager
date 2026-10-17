@@ -2,7 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-let browserClient: ReturnType<typeof createClient> | undefined;
+let browserClient: ReturnType<typeof createClient<any>> | undefined;
 
 export function getSupabaseBrowserClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
