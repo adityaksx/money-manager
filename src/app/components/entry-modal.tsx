@@ -5,12 +5,12 @@ import { X } from "lucide-react";
 import type { CSSProperties } from "react";
 import { dateKey, todayISO } from "@/lib/format";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { DEFAULT_CATEGORIES, type CategoryRecord, type TransactionKind } from "@/lib/categories";
 
 type Account = { id:string; name:string; account_type:string; opening_balance:number };
 type Transaction = { id:string; account_id:string|null; kind:"income"|"expense"; amount:number; category:string; description:string; occurred_on:string; created_at:string };
 type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"other"; name:string; symbol:string|null; platform:string|null; exchange?:string|null; units:number; invested_amount:number; current_value:number; current_price?:number|null; price_updated_at?:string|null; price_source?:string|null; purchase_date:string; notes:string|null };
 type Kind = "transaction"|"account"|"budget"|"investment"|"adjustment";
-const categories = ["Salary","Freelance","Food & drinks","Groceries","Transport","Shopping","Bills","Education","Entertainment","Health","Rent","Investment","Other"];
 
 const fieldStyle:CSSProperties={display:"grid",gap:7,minWidth:0};
 const labelStyle:CSSProperties={fontSize:11,color:"#626978",fontWeight:700};
@@ -19,7 +19,7 @@ function Field({label,children,full=false}:{label:string;children:React.ReactNod
 function Input({value,onChange,type="text",placeholder,required=false,min,step}:{value:string;onChange:(v:string)=>void;type?:string;placeholder?:string;required?:boolean;min?:string;step?:string}){return <input style={controlStyle} type={type} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)} required={required} min={min} step={step}/>;}
 function Select({value,onChange,children}:{value:string;onChange:(v:string)=>void;children:React.ReactNode}){return <select style={controlStyle} value={value} onChange={e=>onChange(e.target.value)}>{children}</select>;}
 
-export default function EntryModal({kind,accounts,selectedAccountId,transaction,investment,onClose,onSave}:{kind:Kind;accounts:Account[];selectedAccountId:string;transaction:Transaction|null;investment:Investment|null;onClose:()=>void;onSave:(payload:unknown)=>Promise<void>|void}){
+export default function EntryModal({kind,accounts,selectedAccountId,transaction,investment,categories=[],onClose,onSave}:{kind:Kind;accounts:Account[];selectedAccountId:string;transaction:Transaction|null;investment:Investment|null;categories?:CategoryRecord[];onClose:()=>void;onSave:(payload:unknown)=>Promise<void>|void}){
  const [busy,setBusy]=useState(false),[error,setError]=useState("");
  const [type,setType]=useState<"income"|"expense">(transaction?.kind??"expense");
  const [accountId,setAccountId]=useState(transaction?.account_id??accounts[0]?.id??"");
@@ -105,10 +105,10 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  return <div className="form-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section className="form-modal" role="dialog" aria-modal="true" aria-label={title[kind]}><div className="modal-head"><div><h2 className="panel-title" style={{fontSize:16}}>{title[kind]}</h2><div className="panel-subtitle">{kind==="account"?"Use the current or previous balance as your starting point.":kind==="investment"?"Track your holdings independently from bank cash.":kind==="adjustment"?"Positive adds to balance; negative reduces it.":"Your record stays private to your account."}</div></div><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16}/></button></div>
  <form className="modal-body" onSubmit={submit}><div className="form-grid">
  {kind==="transaction"&&<>
-  <Field label="Transaction type" full><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>{(["expense","income"] as const).map(k=><button type="button" key={k} className={"btn"+(type===k?" primary":"")} onClick={()=>{setType(k);setCategory(k==="income"?"Salary":"Food & drinks");}}>{k[0].toUpperCase()+k.slice(1)}</button>)}</div></Field>
+  <Field label="Transaction type" full><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>{(["expense","income"] as const).map(k=><button type="button" key={k} className={"btn"+(type===k?" primary":"")} onClick={()=>{setType(k);setCategory(categories.find(c=>c.kind===k)?.name??DEFAULT_CATEGORIES[k][0]);}}>{k[0].toUpperCase()+k.slice(1)}</button>)}</div></Field>
   <Field label="Amount (₹)"><Input value={amount} onChange={setAmount} type="number" min="0.01" step="0.01" placeholder="0.00" required/></Field>
   <Field label="Date"><Input value={date} onChange={setDate} type="date" required/></Field>
-  <Field label="Category"><Select value={category} onChange={setCategory}>{(type==="income"?["Salary","Freelance","Interest","Refund","Other"]:categories.filter(c=>c!=="Salary"&&c!=="Freelance")).map(c=><option key={c}>{c}</option>)}</Select></Field>
+  <Field label="Category"><Select value={category} onChange={setCategory}>{[...new Set([...categories.filter(c=>c.kind===type).map(c=>c.name),...(categories.some(c=>c.kind===type&&c.name===category)?[]:[category]),...DEFAULT_CATEGORIES[type]])].map(c=><option key={c}>{c}</option>)}</Select></Field>
   <Field label="Account"><Select value={accountId} onChange={setAccountId}><option value="">No account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
   <Field label="Description" full><Input value={description} onChange={setDescription} placeholder="e.g. Monthly salary, groceries…"/></Field>
  </>}
@@ -120,7 +120,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
   <Field label="Currency" full><input style={{...controlStyle,background:"#f8f9fb"}} value="Indian Rupee (INR)" readOnly/></Field>
  </>}
  {kind==="budget"&&<>
-  <Field label="Expense category"><Select value={budgetCategory} onChange={setBudgetCategory}>{categories.filter(c=>!["Salary","Freelance"].includes(c)).map(c=><option key={c}>{c}</option>)}</Select></Field>
+  <Field label="Expense category"><Select value={budgetCategory} onChange={setBudgetCategory}>{[...new Set([...categories.filter(c=>c.kind==="expense").map(c=>c.name),...DEFAULT_CATEGORIES.expense])].map(c=><option key={c}>{c}</option>)}</Select></Field>
   <Field label="Monthly limit (₹)"><Input value={budgetLimit} onChange={setBudgetLimit} type="number" min="1" step="1" placeholder="5000" required/></Field>
   <Field label="Budget period" full><input style={{...controlStyle,background:"#f8f9fb"}} readOnly value={new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}/></Field>
  </>}
