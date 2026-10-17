@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { CSSProperties } from "react";
+import { dateKey, todayISO } from "@/lib/format";
 
 type Account = { id:string; name:string; account_type:string; opening_balance:number };
-type Transaction = { id:string; account_id:string|null; kind:"income"|"expense"|"transfer"; amount:number; category:string; description:string; occurred_on:string; created_at:string };
+type Transaction = { id:string; account_id:string|null; kind:"income"|"expense"; amount:number; category:string; description:string; occurred_on:string; created_at:string };
 type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"other"; name:string; symbol:string|null; platform:string|null; units:number; invested_amount:number; current_value:number; purchase_date:string; notes:string|null };
-type Budget = { id:string; category:string; monthly_limit:number; month:string };
 type Kind = "transaction"|"account"|"budget"|"investment"|"adjustment";
 const categories = ["Salary","Freelance","Food & drinks","Groceries","Transport","Shopping","Bills","Education","Entertainment","Health","Rent","Investment","Other"];
 
@@ -20,12 +20,12 @@ function Select({value,onChange,children}:{value:string;onChange:(v:string)=>voi
 
 export default function EntryModal({kind,accounts,selectedAccountId,transaction,investment,onClose,onSave}:{kind:Kind;accounts:Account[];selectedAccountId:string;transaction:Transaction|null;investment:Investment|null;onClose:()=>void;onSave:(payload:unknown)=>Promise<void>|void}){
  const [busy,setBusy]=useState(false),[error,setError]=useState("");
- const [type,setType]=useState<"income"|"expense"|"transfer">(transaction?.kind??"expense");
+ const [type,setType]=useState<"income"|"expense">(transaction?.kind??"expense");
  const [accountId,setAccountId]=useState(transaction?.account_id??accounts[0]?.id??"");
  const [name,setName]=useState(""); const [accountType,setAccountType]=useState("bank"); const [institution,setInstitution]=useState("");
  const [openingBalance,setOpeningBalance]=useState("0"); const [category,setCategory]=useState(transaction?.category??"Food & drinks");
  const [amount,setAmount]=useState(transaction?String(transaction.amount):""); const [description,setDescription]=useState(transaction?.description??"");
- const [date,setDate]=useState(transaction?.occurred_on??new Date().toISOString().slice(0,10));
+ const [date,setDate]=useState(transaction?.occurred_on??todayISO());
  const [budgetCategory,setBudgetCategory]=useState("Food & drinks"); const [budgetLimit,setBudgetLimit]=useState("");
  const [assetType,setAssetType]=useState<Investment["asset_type"]>(investment?.asset_type??"stock");
  const [assetName,setAssetName]=useState(investment?.name??""); const [symbol,setSymbol]=useState(investment?.symbol??"");
@@ -50,7 +50,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
     payload={name:name.trim(),account_type:accountType,institution:institution.trim()||null,opening_balance:Number(openingBalance||0),currency:"INR",color:"#16856b"};
    }else if(kind==="budget"){
     if(!budgetLimit||Number(budgetLimit)<=0)throw new Error("Budget must be greater than zero.");
-    payload={category:budgetCategory,monthly_limit:Number(budgetLimit),month:new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10)};
+    payload={category:budgetCategory,monthly_limit:Number(budgetLimit),month:dateKey(new Date(new Date().getFullYear(),new Date().getMonth(),1))};
    }else if(kind==="investment"){
     if(!assetName.trim())throw new Error("Enter the investment name.");
     if(Number(investedAmount)<0||Number(currentValue)<0)throw new Error("Values cannot be negative.");
@@ -67,10 +67,10 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  return <div className="form-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section className="form-modal" role="dialog" aria-modal="true" aria-label={title[kind]}><div className="modal-head"><div><h2 className="panel-title" style={{fontSize:16}}>{title[kind]}</h2><div className="panel-subtitle">{kind==="account"?"Use the current or previous balance as your starting point.":kind==="investment"?"Track your holdings independently from bank cash.":kind==="adjustment"?"Positive adds to balance; negative reduces it.":"Your record stays private to your account."}</div></div><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16}/></button></div>
  <form className="modal-body" onSubmit={submit}><div className="form-grid">
  {kind==="transaction"&&<>
-  <Field label="Transaction type" full><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>{(["expense","income","transfer"] as const).map(k=><button type="button" key={k} className={"btn"+(type===k?" primary":"")} onClick={()=>{setType(k);if(k==="income"&&category==="Food & drinks")setCategory("Salary");if(k==="expense"&&category==="Salary")setCategory("Food & drinks");}}>{k[0].toUpperCase()+k.slice(1)}</button>)}</div></Field>
+  <Field label="Transaction type" full><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6}}>{(["expense","income"] as const).map(k=><button type="button" key={k} className={"btn"+(type===k?" primary":"")} onClick={()=>{setType(k);setCategory(k==="income"?"Salary":"Food & drinks");}}>{k[0].toUpperCase()+k.slice(1)}</button>)}</div></Field>
   <Field label="Amount (₹)"><Input value={amount} onChange={setAmount} type="number" min="0.01" step="0.01" placeholder="0.00" required/></Field>
   <Field label="Date"><Input value={date} onChange={setDate} type="date" required/></Field>
-  <Field label="Category"><Select value={category} onChange={setCategory}>{(type==="income"?["Salary","Freelance","Interest","Refund","Other"]:type==="transfer"?["Transfer","Investment","Savings","Other"]:categories.filter(c=>c!=="Salary"&&c!=="Freelance")).map(c=><option key={c}>{c}</option>)}</Select></Field>
+  <Field label="Category"><Select value={category} onChange={setCategory}>{(type==="income"?["Salary","Freelance","Interest","Refund","Other"]:categories.filter(c=>c!=="Salary"&&c!=="Freelance")).map(c=><option key={c}>{c}</option>)}</Select></Field>
   <Field label="Account"><Select value={accountId} onChange={setAccountId}><option value="">No account</option>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
   <Field label="Description" full><Input value={description} onChange={setDescription} placeholder="e.g. Monthly salary, groceries…"/></Field>
  </>}
