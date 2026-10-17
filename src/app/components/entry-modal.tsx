@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import type { CSSProperties } from "react";
 import { dateKey, todayISO } from "@/lib/format";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { DEFAULT_CATEGORIES, type CategoryRecord, type TransactionKind } from "@/lib/categories";
+import { DEFAULT_CATEGORIES, type CategoryRecord } from "@/lib/categories";
 
 type Account = { id:string; name:string; account_type:string; opening_balance:number };
 type Transaction = { id:string; account_id:string|null; kind:"income"|"expense"; amount:number; category:string; description:string; occurred_on:string; created_at:string };
