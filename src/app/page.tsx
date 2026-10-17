@@ -139,6 +139,103 @@ export default function Home() {
     window.setTimeout(() => setNotice(current => current === message ? "" : current), 4500);
   }
 
+  async function saveRefund(payload:{amount:number;received_on:string;note:string|null}) {
+    if(!supabase||!user||!refundTarget)throw new Error("Select an expense transaction first.");
+    if(refundTarget.kind!=="expense")throw new Error("Only expense transactions can have a refund.");
+    const already=refundTotals.get(refundTarget.id)??0;
+    if(payload.amount+already>num(refundTarget.amount)+0.001)throw new Error("Total refunds cannot exceed the original expense.");
+    const {data,error}=await supabase.from("mm_transaction_refunds").insert({...payload,user_id:user.id,transaction_id:refundTarget.id}).select().single();
+    if(error)throw error;
+    setRefunds(old=>[...old,data as RefundRecord]);
+    setRefundTarget(null);
+    notify("Refund recorded. Net spending and account balance updated.");
+  }
+
+  async function importTransactions(rows:ImportTransaction[]) {
+    if(!supabase||!user)throw new Error("Sign in before importing transactions.");
+    if(!rows.length)throw new Error("No valid rows to import.");
+    if(rows.length>1000)throw new Error("Import up to 1,000 transactions at a time.");
+    const known=new Set(categories.map(c=>c.kind+"::"+c.name.trim().toLocaleLowerCase()));
+    const newCategories=[...new Map(rows.filter(row=>!known.has(row.kind+"::"+row.category.trim().toLocaleLowerCase())).map(row=>[row.kind+"::"+row.category.trim().toLocaleLowerCase(),{user_id:user.id,kind:row.kind,name:row.category.trim(),is_default:false}])).values()];
+    if(newCategories.length){
+      const {error:catError}=await supabase.from("mm_categories").upsert(newCategories,{onConflict:"user_id,kind,name",ignoreDuplicates:true});
+      if(catError)throw catError;
+    }
+    const {data,error}=await supabase.from("mm_transactions").insert(rows.map(row=>({...row,user_id:user.id}))).select();
+    if(error)throw error;
+    setTransactions(old=>[...(data as Transaction[]),...old]);
+    const {data:catRows,error:catLoadError}=await supabase.from("mm_categories").select("id,user_id,kind,name,is_default,created_at").order("kind").order("name");
+    if(!catLoadError)setCategories((catRows??[]) as CategoryRecord[]);
+    notify(`Imported ${data?.length??rows.length} transactions.`);
+  }
+
+  async function addCategory(payload:{kind:TransactionKind;name:string}) {
+    if(!supabase||!user)throw new Error("Sign in before adding a category.");
+    if(categories.some(c=>c.kind===payload.kind&&c.name.trim().toLocaleLowerCase()===payload.name.trim().toLocaleLowerCase()))throw new Error("That category already exists for this type.");
+    const {data,error}=await supabase.from("mm_categories").insert({...payload,user_id:user.id,is_default:false}).select().single();
+    if(error)throw error;
+    setCategories(old=>[...old,data as CategoryRecord].sort((a,b)=>a.kind.localeCompare(b.kind)||a.name.localeCompare(b.name)));
+    notify("Category added.");
+  }
+
+  async function deleteCategory(category:CategoryRecord) {
+    if(!supabase||category.is_default)return;
+    if(!window.confirm(`Delete the custom category "${category.name}"? Existing transactions keep their recorded category name.`))return;
+    const {error}=await supabase.from("mm_categories").delete().eq("id",category.id);
+    if(error){notify(error.message);return;}
+    setCategories(old=>old.filter(c=>c.id!==category.id));
+    notify("Category deleted.");
+  }
+
+  async function saveDebt(payload:DebtInput) {
+    if(!supabase||!user)throw new Error("Sign in before saving this debt.");
+    const kind=payload.direction==="lent"?"expense":"income";
+    const category=payload.direction==="lent"?"Loans given":"Borrowed money";
+    const description=payload.direction==="lent"?`Lent to ${payload.person_name}`:`Borrowed from ${payload.person_name}`;
+    const {data:tx,error:txError}=await supabase.from("mm_transactions").insert({
+      user_id:user.id,kind,amount:payload.amount,category,description,occurred_on:payload.occurred_on,account_id:payload.account_id,
+    }).select().single();
+    if(txError)throw txError;
+    const {data:debt,error}=await supabase.from("mm_debts").insert({
+      ...payload,user_id:user.id,transaction_id:tx.id,
+    }).select().single();
+    if(error){await supabase.from("mm_transactions").delete().eq("id",tx.id);throw error;}
+    setTransactions(old=>[tx as Transaction,...old]);
+    setDebts(old=>[debt as DebtRecord,...old]);
+    setDebtMode(null);
+    notify(payload.direction==="lent"?"Loan recorded; your cash balance was reduced.":"Borrowing recorded; your cash balance was increased.");
+  }
+
+  async function saveDebtRepayment(payload:RepaymentInput) {
+    if(!supabase||!user||!repaymentTarget)throw new Error("Select a debt record first.");
+    if(payload.amount>repaymentTarget.outstanding+0.001)throw new Error("Repayment exceeds the outstanding amount.");
+    const incoming=repaymentTarget.direction==="lent";
+    const {data:tx,error:txError}=await supabase.from("mm_transactions").insert({
+      user_id:user.id,kind:incoming?"income":"expense",amount:payload.amount,
+      category:incoming?"Loan repayment received":"Loan repayment paid",
+      description:incoming?`Repayment from ${repaymentTarget.person_name}`:`Repayment to ${repaymentTarget.person_name}`,
+      occurred_on:payload.occurred_on,account_id:repaymentTarget.account_id,
+    }).select().single();
+    if(txError)throw txError;
+    const {data:repayment,error}=await supabase.from("mm_debt_repayments").insert({
+      ...payload,user_id:user.id,debt_id:repaymentTarget.id,transaction_id:tx.id,
+    }).select().single();
+    if(error){await supabase.from("mm_transactions").delete().eq("id",tx.id);throw error;}
+    setTransactions(old=>[tx as Transaction,...old]);
+    setDebtRepayments(old=>[...old,repayment as DebtRepaymentRecord]);
+    setRepaymentTarget(null);setDebtMode(null);
+    notify("Repayment recorded; outstanding balance updated.");
+  }
+
+  function exportTransactionsCsv() {
+    const quote=(value:unknown)=>"\"\""+String(value??"").replace(/"/g,'""')+"\"\"";
+    const head=["date","type","amount","category","description","account","refunded_amount","net_expense"];
+    const data=[head,...transactions.map(t=>[t.occurred_on,t.kind,t.amount,t.category,t.description,t.account_id?accounts.find(a=>a.id===t.account_id)?.name??"": "",refundTotals.get(t.id)??0,t.kind==="expense"?Math.max(0,num(t.amount)-(refundTotals.get(t.id)??0)):""])];
+    const csv="\uFEFF"+data.map(row=>row.map(quote).join(",")).join("\r\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="money-manager-transactions.csv";a.click();URL.revokeObjectURL(url);
+  }
+
   const refreshMarketPrices = useCallback(async () => {
     if (!supabase) return;
     const candidates = investments.filter(i => i.symbol && ["stock", "etf", "mutual_fund"].includes(i.asset_type));
