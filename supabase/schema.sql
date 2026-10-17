@@ -8,7 +8,7 @@ create table if not exists public.mm_accounts (
 );
 create table if not exists public.mm_transactions (
  id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
- account_id uuid references public.mm_accounts(id) on delete set null, kind text not null check(kind in ('income','expense','transfer')),
+ account_id uuid references public.mm_accounts(id) on delete set null, kind text not null check(kind in ('income','expense')),
  amount numeric(14,2) not null check(amount > 0), category text not null, description text not null default '', occurred_on date not null default current_date, created_at timestamptz not null default now()
 );
 create table if not exists public.mm_budgets (
