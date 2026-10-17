@@ -17,6 +17,21 @@ Money Manager uses its own Supabase project, separate from FlowLedger.
 - Gold, other assets, and unsupported tickers can use a manual per-unit price. If a historical quote is unavailable, enter the buy price manually.
 - No broker account is connected. User-entered transaction history remains the source of units and cost basis.
 
+## Transaction imports, refunds, categories, and personal debts
+- Transactions can be imported from CSV, XLSX, or XLS files in the Transactions page. The first worksheet is read, with a preview before import. A template is available in the import dialog. Required fields are date and amount; a type column (income/expense) is strongly recommended. Optional columns are category, description, and account. Imports are limited to 1,000 rows at a time.
+- Refunds attach to an expense transaction with a received date, amount, and note. Multiple partial refunds are supported, but the database rejects total refunds above the original expense. Refunds reduce net spending and are added back to cash for the original account.
+- Default categories are added for each signed-in user. Custom income and expense categories are stored in the mm_categories table and can be managed from Transactions. The free-text category saved on each historical transaction is retained when a custom category is removed.
+- The People page tracks amounts lent to friends and amounts borrowed, with dated, partial repayments. Loan and repayment actions create linked income/expense transactions so account cash balances update. Linked loan transactions cannot be deleted from the Transactions page while the People record depends on them.
+- New tables use RLS: mm_transaction_refunds, mm_categories, mm_debts, and mm_debt_repayments. Refund and repayment totals are also validated in database triggers, not just in the form UI.
+
+### Recommended import columns
+~~~csv
+date,type,amount,category,description,account
+2026-10-17,expense,1200,Shopping,Flipkart order,Canara Savings
+2026-10-17,income,45000,Salary,October salary,Canara Savings
+~~~
+Use positive amounts with type set to income or expense. The import wizard recognizes common date, narration/description, category, debit/credit, and account-column variants. It does not import refunds or personal debts as transaction types; record those using the dedicated features after importing.
+
 ## Google OAuth setup
 1. In Google Cloud Console, create a Web application OAuth client.
 2. Add this Authorized redirect URI in Google Cloud Console:
