@@ -9,7 +9,7 @@ import EntryModal from "@/app/entry-modal";
 
 type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investments";
 type Account = { id: string; name: string; account_type: string; institution: string | null; opening_balance: number; color: string; created_at: string };
-type Transaction = { id: string; account_id: string | null; kind: "income" | "expense" | "transfer"; amount: number; category: string; description: string; occurred_on: string; created_at: string };
+type Transaction = { id: string; account_id: string | null; kind: "income" | "expense"; amount: number; category: string; description: string; occurred_on: string; created_at: string };
 type Budget = { id: string; category: string; monthly_limit: number; month: string };
 type Investment = { id: string; asset_type: "stock" | "mutual_fund" | "etf" | "gold" | "other"; name: string; symbol: string | null; platform: string | null; units: number; invested_amount: number; current_value: number; purchase_date: string; notes: string | null };
 type AuthUser = { id: string; email?: string; user_metadata?: Record<string, string> };
@@ -18,11 +18,10 @@ const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
   { name: "Overview", icon: LayoutDashboard }, { name: "Transactions", icon: ArrowLeftRight },
   { name: "Budgets", icon: Target }, { name: "Bank accounts", icon: Landmark }, { name: "Investments", icon: ChartNoAxesCombined },
 ];
-const categories = ["Salary", "Freelance", "Food & drinks", "Groceries", "Transport", "Shopping", "Bills", "Education", "Entertainment", "Health", "Rent", "Investment", "Other"];
 const expenseCategories = ["Food & drinks", "Groceries", "Transport", "Shopping", "Bills", "Education", "Entertainment", "Health", "Rent", "Investment", "Other"];
 const assetLabels: Record<Investment["asset_type"], string> = { stock: "Stocks", mutual_fund: "Mutual funds", etf: "ETFs", gold: "Gold", other: "Other" };
 const assetIcons: Record<Investment["asset_type"], typeof TrendingUp> = { stock: TrendingUp, mutual_fund: Layers3, etf: PieChart, gold: Gem, other: TrendingUp };
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const num = (value: unknown) => Number(value ?? 0) || 0;
 const num = (value: unknown) => Number(value ?? 0) || 0;
 function dateLabel(date: string) { return new Date(date + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
 function monthLabel(date = new Date()) { return date.toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
@@ -109,7 +108,7 @@ export default function Home() {
   const { start: monthStart, end: monthEnd } = monthRange();
   const thisMonth = useMemo(() => transactions.filter(t => t.occurred_on >= monthStart.slice(0, 10) && t.occurred_on < monthEnd.slice(0, 10)), [transactions, monthStart, monthEnd]);
   const lastMonthTransactions = useMemo(() => {
-    const now = new Date(), start = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10), end = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const now = new Date(), start = dateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)), end = dateKey(new Date(now.getFullYear(), now.getMonth(), 1));
     return transactions.filter(t => t.occurred_on >= start && t.occurred_on < end);
   }, [transactions]);
   const income = thisMonth.filter(t => t.kind === "income").reduce((s,t) => s + num(t.amount), 0);
@@ -138,7 +137,7 @@ export default function Home() {
       });
     }
     return Array.from({length:6},(_,idx)=>{
-      const date=new Date(now.getFullYear(),now.getMonth()-5+idx,1),key=date.toISOString().slice(0,7),rows=transactions.filter(t=>t.occurred_on.slice(0,7)===key);
+      const date=new Date(now.getFullYear(),now.getMonth()-5+idx,1),key=dateKey(date).slice(0,7),rows=transactions.filter(t=>t.occurred_on.slice(0,7)===key);
       return {label:date.toLocaleDateString("en-IN",{month:"short"}),income:rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0),expense:rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0)};
     });
   }, [period,transactions,thisMonth]);
@@ -171,9 +170,9 @@ export default function Home() {
       try {
         if(modal==="transaction"){const body=payload as Omit<Transaction,"id"|"created_at">;if(editingTransaction){const {data,error}=await supabase.from("mm_transactions").update(body).eq("id",editingTransaction.id).select().single();if(error)throw error;setTransactions(v=>v.map(t=>t.id===editingTransaction.id?data as Transaction:t));}else{const {data,error}=await supabase.from("mm_transactions").insert({...body,user_id:user.id}).select().single();if(error)throw error;setTransactions(v=>[data as Transaction,...v]);}notify(editingTransaction?"Transaction updated.":"Transaction added.");}
         else if(modal==="account"){const body=payload as Omit<Account,"id"|"created_at">;const {data,error}=await supabase.from("mm_accounts").insert({...body,user_id:user.id}).select().single();if(error)throw error;setAccounts(v=>[...v,data as Account]);notify("Account created.");}
-        else if(modal==="budget"){const body=payload as Omit<Budget,"id">;const month=new Date();month.setDate(1);const {data,error}=await supabase.from("mm_budgets").upsert({...body,user_id:user.id,month:month.toISOString().slice(0,10)},{onConflict:"user_id,category,month"}).select().single();if(error)throw error;setBudgets(v=>[...v.filter(b=>!(b.category===data.category&&b.month.slice(0,7)===data.month.slice(0,7))),data as Budget]);notify("Budget saved.");}
+        else if(modal==="budget"){const body=payload as Omit<Budget,"id">;const month=new Date();month.setDate(1);const {data,error}=await supabase.from("mm_budgets").upsert({...body,user_id:user.id,month:dateKey(month)},{onConflict:"user_id,category,month"}).select().single();if(error)throw error;setBudgets(v=>[...v.filter(b=>!(b.category===data.category&&b.month.slice(0,7)===data.month.slice(0,7))),data as Budget]);notify("Budget saved.");}
         else if(modal==="investment"){const body=payload as Omit<Investment,"id">;if(editingInvestment){const {data,error}=await supabase.from("mm_investments").update(body).eq("id",editingInvestment.id).select().single();if(error)throw error;setInvestments(v=>v.map(i=>i.id===editingInvestment.id?data as Investment:i));}else{const {data,error}=await supabase.from("mm_investments").insert({...body,user_id:user.id}).select().single();if(error)throw error;setInvestments(v=>[data as Investment,...v]);}notify(editingInvestment?"Holding updated.":"Investment holding added.");}
-        else if(modal==="adjustment"){const p=payload as {account_id:string;amount:number;note:string;occurred_on:string};const {data,error}=await supabase.from("mm_account_adjustments").insert({...p,user_id:user.id}).select().single();if(error)throw error;setAccountAdjustments(v=>[...v,{account_id:p.account_id,amount:p.amount}]);notify("Balance adjustment saved.");}
+        else if(modal==="adjustment"){const p=payload as {account_id:string;amount:number;note:string;occurred_on:string};const {error}=await supabase.from("mm_account_adjustments").insert({...p,user_id:user.id});if(error)throw error;setAccountAdjustments(v=>[...v,{account_id:p.account_id,amount:p.amount}]);notify("Balance adjustment saved.");}
         setModal(null);setEditingTransaction(null);setEditingInvestment(null);setSelectedAccountId("");
       }catch(err){notify(err instanceof Error?err.message:"Save failed. Check the Supabase schema and RLS policies.");}
     }}/>}
@@ -200,7 +199,15 @@ function OverviewPage(p:{loading:boolean;income:number;expense:number;cash:numbe
  <section className="panel"><div className="panel-head"><div><h2 className="panel-title">Spending breakdown</h2><div className="panel-subtitle">Top expense categories this month</div></div></div><div className="panel-body">{p.expenseByCategory.length===0?<div className="empty">Category breakdown appears after you log expenses.</div>:p.expenseByCategory.map((r,i)=>{const colors=["#16856b","#7590ed","#d9913b","#b59adb","#d95b64"],pct=p.expense?r.amount/p.expense*100:0;return <div className="budget-row" key={r.category}><div className="budget-row-head"><span className="budget-name">{r.category}</span><span className="budget-numbers">{formatINR(r.amount)} · {Math.round(pct)}%</span></div><div className="progress"><span style={{width:`${pct}%`,background:colors[i]}}/></div></div>})}</div></section></div></div>;
 }
 function TransactionRow({row,accountName,onEdit,onDelete}:{row:Transaction;accountName?:string;onEdit:()=>void;onDelete:()=>void}){
- const income=row.kind==="income";return <div className="transaction-row"><div style={{display:"flex",gap:11,alignItems:"center",minWidth:0}}><div className="metric-icon" style={{flexShrink:0,background:income?"#e9f6f1":row.kind==="transfer"?"#eef2ff":"#fff5e8",color:income?"#16856b":row.kind==="transfer"?"#4b71e8":"#d9913b"}}>{income?<ArrowDownLeft size={16}/>:row.kind==="transfer"?<ArrowLeftRight size={16}/>:<ShoppingBag size={16}/>}</div><div style={{minWidth:0}}><div className="transaction-name" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.description||row.category}</div><div className="transaction-meta">{row.category} · {dateLabel(row.occurred_on)}{accountName?` · ${accountName}`:""}</div></div></div><span className={"pill "+(income?"green":row.kind==="transfer"?"blue":"red")}>{income?"Income":row.kind==="transfer"?"Transfer":"Expense"}</span><div style={{display:"flex",alignItems:"center",gap:5}}><div className="transaction-amount" style={{color:income?"#16856b":row.kind==="transfer"?"#4b71e8":"#252a33"}}>{income?"+":row.kind==="transfer"?"":"−"}{formatINR(num(row.amount))}</div><button className="icon-btn" aria-label="Edit transaction" onClick={onEdit} style={{width:28,height:28,borderColor:"transparent"}}><Pencil size={12}/></button><button className="icon-btn" aria-label="Delete transaction" onClick={onDelete} style={{width:28,height:28,borderColor:"transparent"}}><Trash2 size={12}/></button></div></div>;
+ const income = row.kind === "income";
+ return <div className="transaction-row">
+  <div style={{display:"flex",gap:11,alignItems:"center",minWidth:0}}>
+   <div className="metric-icon" style={{flexShrink:0,background:income?"#e9f6f1":"#fff5e8",color:income?"#16856b":"#d9913b"}}>{income?<ArrowDownLeft size={16}/>:<ShoppingBag size={16}/>}</div>
+   <div style={{minWidth:0}}><div className="transaction-name" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.description||row.category}</div><div className="transaction-meta">{row.category} · {dateLabel(row.occurred_on)}{accountName?` · ${accountName}`:""}</div></div>
+  </div>
+  <span className={"pill "+(income?"green":"red")}>{income?"Income":"Expense"}</span>
+  <div style={{display:"flex",alignItems:"center",gap:5}}><div className="transaction-amount" style={{color:income?"#16856b":"#252a33"}}>{income?"+":"−"}{formatINR(num(row.amount))}</div><button className="icon-btn" aria-label="Edit transaction" onClick={onEdit} style={{width:28,height:28,borderColor:"transparent"}}><Pencil size={12}/></button><button className="icon-btn" aria-label="Delete transaction" onClick={onDelete} style={{width:28,height:28,borderColor:"transparent"}}><Trash2 size={12}/></button></div>
+ </div>;
 }
 function TransactionsPage(p:{rows:Transaction[];accountMap:Map<string,string>;searchTerm:string;setSearchTerm:(v:string)=>void;filter:"all"|"income"|"expense";setFilter:(v:"all"|"income"|"expense")=>void;onAdd:()=>void;onEdit:(t:Transaction)=>void;onDelete:(t:Transaction)=>void}){
  const income=p.rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0),expense=p.rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0);
