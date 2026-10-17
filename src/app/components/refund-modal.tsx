@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CalendarClock, X } from "lucide-react";
 import { todayISO } from "@/lib/format";
 
-export type RefundRecord = { id: string; amount: number; received_on: string; note: string | null; created_at?: string };
+export type RefundRecord = { id: string; transaction_id: string; amount: number; received_on: string; note: string | null; created_at?: string };
 type TransactionRecord = { id: string; kind: "income" | "expense"; amount: number; description: string; category: string; occurred_on: string };
 
 export default function RefundModal({ transaction, refunds, onClose, onSave }: {
