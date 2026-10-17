@@ -1,15 +1,21 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CreditCard, Gem, LayoutDashboard, Landmark, Layers3, LoaderCircle, LogOut, MoreHorizontal, Pencil, PieChart, Plus, Search, History, ShieldCheck, ShoppingBag, Target, Trash2, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
+import { Activity, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CreditCard, Gem, HandCoins, LayoutDashboard, Landmark, Layers3, LoaderCircle, LogOut, MoreHorizontal, Pencil, PieChart, Plus, Search, History, ShieldCheck, ShoppingBag, Target, Trash2, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dateKey, formatINR, monthRange, todayISO } from "@/lib/format";
+import { DEFAULT_CATEGORIES, type CategoryRecord, type TransactionKind } from "@/lib/categories";
+import TransactionImportModal, { type ImportTransaction } from "@/app/components/transaction-import-modal";
+import RefundModal, { type RefundRecord } from "@/app/components/refund-modal";
+import CategoriesModal from "@/app/components/categories-modal";
+import DebtModal, { type DebtRecord, type DebtRepaymentRecord, type DebtInput, type RepaymentInput } from "@/app/components/debt-modal";
+import PeoplePage, { type DebtPosition } from "@/app/components/people-page";
 import EntryModal from "@/app/entry-modal";
 import InvestmentActivityModal from "@/app/components/investment-activity-modal";
 import { calculateInvestmentPosition, type InvestmentActivity, type InvestmentPosition } from "@/lib/investment-portfolio";
 
-type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investments";
+type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investments" | "People";
 type Account = { id: string; name: string; account_type: string; institution: string | null; opening_balance: number; color: string; created_at: string };
 type Transaction = { id: string; account_id: string | null; kind: "income" | "expense"; amount: number; category: string; description: string; occurred_on: string; created_at: string };
 type Budget = { id: string; category: string; monthly_limit: number; month: string };
@@ -18,9 +24,8 @@ type AuthUser = { id: string; email?: string; user_metadata?: Record<string, str
 
 const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
   { name: "Overview", icon: LayoutDashboard }, { name: "Transactions", icon: ArrowLeftRight },
-  { name: "Budgets", icon: Target }, { name: "Bank accounts", icon: Landmark }, { name: "Investments", icon: ChartNoAxesCombined },
+  { name: "Budgets", icon: Target }, { name: "Bank accounts", icon: Landmark }, { name: "Investments", icon: ChartNoAxesCombined }, { name: "People", icon: HandCoins },
 ];
-const expenseCategories = ["Food & drinks", "Groceries", "Transport", "Shopping", "Bills", "Education", "Entertainment", "Health", "Rent", "Investment", "Other"];
 const assetLabels: Record<Investment["asset_type"], string> = { stock: "Stocks", mutual_fund: "Mutual funds", etf: "ETFs", gold: "Gold", other: "Other" };
 const assetIcons: Record<Investment["asset_type"], typeof TrendingUp> = { stock: TrendingUp, mutual_fund: Layers3, etf: PieChart, gold: Gem, other: TrendingUp };
 const num = (value: unknown) => Number(value ?? 0) || 0;
@@ -37,6 +42,15 @@ export default function Home() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentActivity[]>([]);
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
+  const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [debts, setDebts] = useState<DebtRecord[]>([]);
+  const [debtRepayments, setDebtRepayments] = useState<DebtRepaymentRecord[]>([]);
+  const [refundTarget, setRefundTarget] = useState<Transaction | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
+  const [debtMode, setDebtMode] = useState<"new" | "repayment" | null>(null);
+  const [repaymentTarget, setRepaymentTarget] = useState<DebtPosition | null>(null);
   const [investmentActionId, setInvestmentActionId] = useState<string | null>(null);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [autoPriceRefreshStarted, setAutoPriceRefreshStarted] = useState(false);
@@ -51,19 +65,28 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [transactionFilter, setTransactionFilter] = useState<"all" | "income" | "expense">("all");
   const [period, setPeriod] = useState<"This month" | "Last 6 months">("This month");
+  const refundTotals = useMemo(() => refunds.reduce((map, refund) => { map.set(refund.transaction_id, (map.get(refund.transaction_id) ?? 0) + num(refund.amount)); return map; }, new Map<string, number>()), [refunds]);
+  const refundsByTransaction = useMemo(() => refunds.reduce((map, refund) => { const list=map.get(refund.transaction_id) ?? []; list.push(refund); map.set(refund.transaction_id,list); return map; }, new Map<string, RefundRecord[]>()), [refunds]);
 
   const loadData = useCallback(async () => {
     if (!supabase || !user) return;
     setLoading(true);
-    const [a, t, b, i, adj, ia] = await Promise.all([
+    const defaultRows = (Object.entries(DEFAULT_CATEGORIES) as [TransactionKind,string[]][]).flatMap(([kind,names])=>names.map(name=>({user_id:user.id,kind,name,is_default:true})));
+    const { error: seedError } = await supabase.from("mm_categories").upsert(defaultRows,{onConflict:"user_id,kind,name",ignoreDuplicates:true});
+    if (seedError) console.warn("Could not seed default categories:", seedError.message);
+    const [a, t, b, i, adj, ia, rf, cat, d, dr] = await Promise.all([
       supabase.from("mm_accounts").select("id,name,account_type,institution,opening_balance,color,created_at").order("created_at", { ascending: true }),
-      supabase.from("mm_transactions").select("id,account_id,kind,amount,category,description,occurred_on,created_at").order("occurred_on", { ascending: false }).limit(500),
+      supabase.from("mm_transactions").select("id,account_id,kind,amount,category,description,occurred_on,created_at").order("occurred_on", { ascending: false }).limit(5000),
       supabase.from("mm_budgets").select("id,category,monthly_limit,month").order("category"),
       supabase.from("mm_investments").select("id,asset_type,name,symbol,platform,exchange,units,invested_amount,current_value,current_price,price_updated_at,price_source,purchase_date,notes").order("created_at", { ascending: false }),
       supabase.from("mm_account_adjustments").select("account_id,amount"),
       supabase.from("mm_investment_transactions").select("id,investment_id,action,units,unit_price,fees,occurred_on,created_at,notes").order("occurred_on", { ascending: true }),
+      supabase.from("mm_transaction_refunds").select("id,transaction_id,amount,received_on,note,created_at").order("received_on", { ascending: true }),
+      supabase.from("mm_categories").select("id,user_id,kind,name,is_default,created_at").order("kind").order("name"),
+      supabase.from("mm_debts").select("id,user_id,direction,person_name,amount,occurred_on,account_id,transaction_id,note,created_at").order("occurred_on", { ascending: false }),
+      supabase.from("mm_debt_repayments").select("id,user_id,debt_id,amount,occurred_on,transaction_id,note,created_at").order("occurred_on", { ascending: true }),
     ]);
-    const errors = [a.error, t.error, b.error, i.error, adj.error, ia.error].filter(Boolean);
+    const errors = [a.error, t.error, b.error, i.error, adj.error, ia.error, rf.error, cat.error, d.error, dr.error].filter(Boolean);
     if (errors.length) setNotice(errors[0]?.message ?? "Could not load your data.");
     else {
       setAccounts((a.data ?? []) as Account[]);
@@ -72,6 +95,10 @@ export default function Home() {
       setInvestments((i.data ?? []) as Investment[]);
       setInvestmentTransactions((ia.data ?? []) as InvestmentActivity[]);
       setAccountAdjustments((adj.data ?? []) as { account_id: string; amount: number }[]);
+      setRefunds((rf.data ?? []) as RefundRecord[]);
+      setCategories((cat.data ?? []) as CategoryRecord[]);
+      setDebts((d.data ?? []) as DebtRecord[]);
+      setDebtRepayments((dr.data ?? []) as DebtRepaymentRecord[]);
       setNotice("");
     }
     setLoading(false);
@@ -103,7 +130,7 @@ export default function Home() {
   async function signOut() {
     if (!supabase) return;
     await supabase.auth.signOut();
-    setUser(null); setAccounts([]); setTransactions([]); setBudgets([]); setInvestments([]); setInvestmentTransactions([]); setAccountAdjustments([]); setInvestmentActionId(null); setAutoPriceRefreshStarted(false);
+    setUser(null); setAccounts([]); setTransactions([]); setBudgets([]); setInvestments([]); setInvestmentTransactions([]); setAccountAdjustments([]); setRefunds([]); setCategories([]); setDebts([]); setDebtRepayments([]); setInvestmentActionId(null); setAutoPriceRefreshStarted(false);
   }
   function openTransaction(transaction?: Transaction) { setEditingTransaction(transaction ?? null); setModal("transaction"); }
   function openInvestment(investment?: Investment) { setEditingInvestment(investment ?? null); setModal("investment"); }
