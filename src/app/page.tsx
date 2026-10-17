@@ -360,7 +360,7 @@ export default function Home() {
       const date=new Date(now.getFullYear(),now.getMonth()-5+idx,1),key=dateKey(date).slice(0,7),rows=transactions.filter(t=>t.occurred_on.slice(0,7)===key);
       return {label:date.toLocaleDateString("en-IN",{month:"short"}),income:rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0)+refunds.filter(refund=>refund.received_on.slice(0,7)===key).reduce((s,refund)=>s+num(refund.amount),0),expense:rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0)};
     });
-  }, [period,transactions,thisMonth,refundTotals,refunds]);
+  }, [period,transactions,thisMonth,refunds]);
   const expenseCategoryNames = [...new Set([...categories.filter(c=>c.kind==="expense").map(c=>c.name),...thisMonth.filter(t=>t.kind==="expense").map(t=>t.category)])];
   const expenseByCategory = expenseCategoryNames.map(category=>({category,amount:thisMonth.filter(t=>t.kind==="expense"&&t.category===category).reduce((s,t)=>s+netExpense(t),0)})).filter(r=>r.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,5);
   const debtPositions: DebtPosition[] = debts.map(debt => {
