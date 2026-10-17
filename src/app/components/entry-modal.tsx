@@ -31,8 +31,6 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  const [assetType,setAssetType]=useState<Investment["asset_type"]>(investment?.asset_type??"stock");
  const [assetName,setAssetName]=useState(investment?.name??""); const [symbol,setSymbol]=useState(investment?.symbol??"");
  const [platform,setPlatform]=useState(investment?.platform??""); const [units,setUnits]=useState(investment?String(investment.units):"");
- const [investedAmount,setInvestedAmount]=useState(investment?String(investment.invested_amount):"");
- const [currentValue,setCurrentValue]=useState(investment?String(investment.current_value):"");
  const [notes,setNotes]=useState(investment?.notes??""); const [adjustmentAmount,setAdjustmentAmount]=useState("");
  const [exchange,setExchange]=useState(investment?.exchange??"");
  const [fees,setFees]=useState("0");
