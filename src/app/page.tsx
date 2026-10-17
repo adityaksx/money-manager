@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CreditCard, Gem, LayoutDashboard, Landmark, Layers3, LoaderCircle, LogOut, MoreHorizontal, Pencil, PieChart, Plus, Search, ShieldCheck, ShoppingBag, Target, Trash2, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { formatINR, monthRange } from "@/lib/format";
+import { dateKey, formatINR, monthRange, todayISO } from "@/lib/format";
 import EntryModal from "@/app/entry-modal";
 
 type Page = "Overview" | "Transactions" | "Budgets" | "Bank accounts" | "Investments";
@@ -21,7 +21,6 @@ const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
 const expenseCategories = ["Food & drinks", "Groceries", "Transport", "Shopping", "Bills", "Education", "Entertainment", "Health", "Rent", "Investment", "Other"];
 const assetLabels: Record<Investment["asset_type"], string> = { stock: "Stocks", mutual_fund: "Mutual funds", etf: "ETFs", gold: "Gold", other: "Other" };
 const assetIcons: Record<Investment["asset_type"], typeof TrendingUp> = { stock: TrendingUp, mutual_fund: Layers3, etf: PieChart, gold: Gem, other: TrendingUp };
-const num = (value: unknown) => Number(value ?? 0) || 0;
 const num = (value: unknown) => Number(value ?? 0) || 0;
 function dateLabel(date: string) { return new Date(date + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
 function monthLabel(date = new Date()) { return date.toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
