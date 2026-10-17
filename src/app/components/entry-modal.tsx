@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Plus, ArrowLeftRight } from "lucide-react";
+import { X } from "lucide-react";
 import type { CSSProperties } from "react";
 
 type Account = { id:string; name:string; account_type:string; opening_balance:number };
@@ -10,6 +10,13 @@ type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"ot
 type Budget = { id:string; category:string; monthly_limit:number; month:string };
 type Kind = "transaction"|"account"|"budget"|"investment"|"adjustment";
 const categories = ["Salary","Freelance","Food & drinks","Groceries","Transport","Shopping","Bills","Education","Entertainment","Health","Rent","Investment","Other"];
+
+const fieldStyle:CSSProperties={display:"grid",gap:7,minWidth:0};
+const labelStyle:CSSProperties={fontSize:11,color:"#626978",fontWeight:700};
+const controlStyle:CSSProperties={width:"100%",minWidth:0,padding:"11px 12px",borderRadius:9,border:"1px solid #e2e5eb",background:"#fff",color:"#171a22"};
+function Field({label,children,full=false}:{label:string;children:React.ReactNode;full?:boolean}){return <div style={{...fieldStyle,gridColumn:full?"1 / -1":undefined}}><label style={labelStyle}>{label}</label>{children}</div>}
+function Input({value,onChange,type="text",placeholder,required=false,min,step}:{value:string;onChange:(v:string)=>void;type?:string;placeholder?:string;required?:boolean;min?:string;step?:string}){return <input style={controlStyle} type={type} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)} required={required} min={min} step={step}/>;}
+function Select({value,onChange,children}:{value:string;onChange:(v:string)=>void;children:React.ReactNode}){return <select style={controlStyle} value={value} onChange={e=>onChange(e.target.value)}>{children}</select>;}
 
 export default function EntryModal({kind,accounts,selectedAccountId,transaction,investment,onClose,onSave}:{kind:Kind;accounts:Account[];selectedAccountId:string;transaction:Transaction|null;investment:Investment|null;onClose:()=>void;onSave:(payload:unknown)=>Promise<void>|void}){
  const [busy,setBusy]=useState(false),[error,setError]=useState("");
@@ -57,11 +64,6 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
   }catch(err){setError(err instanceof Error?err.message:"Unable to save this entry.");}
   finally{setBusy(false);}
  }
- const field:CSSProperties={display:"grid",gap:7,minWidth:0}, label:CSSProperties={fontSize:11,color:"#626978",fontWeight:700}, control:CSSProperties={width:"100%",minWidth:0,padding:"11px 12px",borderRadius:9,border:"1px solid #e2e5eb",background:"#fff",color:"#171a22"};
- function Field({label,children,full=false}:{label:string;children:React.ReactNode;full?:boolean}){return <div style={{...field,gridColumn:full?"1 / -1":undefined}}><label style={labelStyle}>{label}</label>{children}</div>}
- const labelStyle=label;
- function Input({value,onChange,type="text",placeholder,required=false,min,step}:{value:string;onChange:(v:string)=>void;type?:string;placeholder?:string;required?:boolean;min?:string;step?:string}){return <input style={control} type={type} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)} required={required} min={min} step={step}/>;}
- function Select({value,onChange,children}:{value:string;onChange:(v:string)=>void;children:React.ReactNode}){return <select style={control} value={value} onChange={e=>onChange(e.target.value)}>{children}</select>;}
  return <div className="form-overlay" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><section className="form-modal" role="dialog" aria-modal="true" aria-label={title[kind]}><div className="modal-head"><div><h2 className="panel-title" style={{fontSize:16}}>{title[kind]}</h2><div className="panel-subtitle">{kind==="account"?"Use the current or previous balance as your starting point.":kind==="investment"?"Track your holdings independently from bank cash.":kind==="adjustment"?"Positive adds to balance; negative reduces it.":"Your record stays private to your account."}</div></div><button className="icon-btn" onClick={onClose} aria-label="Close"><X size={16}/></button></div>
  <form className="modal-body" onSubmit={submit}><div className="form-grid">
  {kind==="transaction"&&<>
