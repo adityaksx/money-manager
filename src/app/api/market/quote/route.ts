@@ -35,7 +35,16 @@ async function authorize(request: Request) {
   return !error && Boolean(data.user);
 }
 
-async function fetchYahoo(symbol: string, date?: string): Promise<MarketQuote> {
+function normalizeYahooSymbol(symbol: string, exchange: string) {
+  const clean = symbol.trim();
+  if (/[.=^]/.test(clean)) return clean;
+  if (exchange === "NSE") return `${clean}.NS`;
+  if (exchange === "BSE") return `${clean}.BO`;
+  return clean;
+}
+
+async function fetchYahoo(inputSymbol: string, date?: string, exchange = ""): Promise<MarketQuote> {
+  const symbol = normalizeYahooSymbol(inputSymbol, exchange);
   // Yahoo's public chart endpoint is unofficial and can change or rate-limit requests.
   // Cache quote responses and retain a manual-price fallback in the UI.
   const encodedSymbol = encodeURIComponent(symbol);
@@ -186,6 +195,7 @@ export async function GET(request: Request) {
   const symbol = (searchParams.get("symbol") ?? "").trim();
   const type = (searchParams.get("type") ?? "").trim() as AssetType;
   const date = (searchParams.get("date") ?? "").trim() || undefined;
+  const exchange = (searchParams.get("exchange") ?? "").trim().toUpperCase();
   if (!symbol || symbol.length > 100 || /[<>]/.test(symbol)) {
     return NextResponse.json({ error: "Enter a valid ticker, AMFI scheme code, or ISIN." }, { status: 400 });
   }
@@ -196,7 +206,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Date must use YYYY-MM-DD format." }, { status: 400 });
   }
   try {
-    const quote = type === "mutual_fund" ? await fetchAmfi(symbol, date) : await fetchYahoo(symbol, date);
+    const quote = type === "mutual_fund" ? await fetchAmfi(symbol, date) : await fetchYahoo(symbol, date, exchange);
     return NextResponse.json(quote, { headers: { "Cache-Control": "private, max-age=0, must-revalidate" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to fetch this market price." }, { status: 502 });
