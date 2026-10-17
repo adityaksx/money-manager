@@ -44,8 +44,12 @@ function dateValue(value: unknown): string | null {
 }
 function numberValue(value: unknown): number {
   if (typeof value === "number") return value;
-  const cleaned = String(value ?? "").replace(/[₹$€£,\s]/g, "").replace(/[()]/g, "-").trim();
-  return Number(cleaned);
+  const raw = String(value ?? "").trim();
+  const parenthesizedNegative = raw.startsWith("(") && raw.endsWith(")");
+  const cleaned = raw.replace(/[₹$€£,\s()]/g, "");
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed)) return parsed;
+  return parenthesizedNegative ? -Math.abs(parsed) : parsed;
 }
 function parseRows(rawRows: Record<string, unknown>[], accounts: AccountOption[], categoryOptions: CategoryOption[]) {
   const rows: ImportTransaction[] = [];
@@ -55,8 +59,8 @@ function parseRows(rawRows: Record<string, unknown>[], accounts: AccountOption[]
     const date = dateValue(valueOf(row, ["date","transaction date","occurred on","occurred_on","posted date","value date"]));
     const typeRaw = norm(valueOf(row, ["type","kind","transaction type","txn type","direction","dr cr","credit debit"]));
     const amountCell = valueOf(row, ["amount","amount inr","amount (inr)","value","total","transaction amount"]);
-    const debitCell = valueOf(row, ["debit","withdrawal","money out"]);
-    const creditCell = valueOf(row, ["credit","deposit","money in"]);
+    const debitCell = valueOf(row, ["debit","debit amount","withdrawal","withdrawals","money out"]);
+    const creditCell = valueOf(row, ["credit","credit amount","deposit","deposits","money in"]);
     let amount = numberValue(amountCell);
     let kind: TransactionKind;
     if (typeRaw.includes("exp") || typeRaw.includes("debit") || typeRaw === "dr" || typeRaw.includes("withdraw")) kind = "expense";
