@@ -64,9 +64,9 @@ export default function LandingPage({ configured, busy, error, onSignIn }: Landi
             <div className="landing-preview">
               <div className="preview-topbar">
                 <div className="preview-brand"><span className="preview-mark">₹</span><span>RupeeTrail</span></div>
-                <span className="preview-private"><span /> Your overview</span>
+                <span className="preview-private"><span /> Illustrative preview</span>
               </div>
-              <div className="preview-greeting"><div><span>PERSONAL OVERVIEW</span><h2>Your money, at a glance.</h2></div><span className="preview-date">THIS MONTH</span></div>
+              <div className="preview-greeting"><div><span>SAMPLE DATA · THIS MONTH</span><h2>Your money, at a glance.</h2></div><span className="preview-date">THIS MONTH</span></div>
               <div className="preview-metrics">
                 <div className="preview-metric"><span>Total balance</span><strong>₹84,250</strong><small><Wallet size={13} /> Accounts + investments</small></div>
                 <div className="preview-metric"><span>Net cash flow</span><strong className="preview-positive">+₹8,420</strong><small><ArrowUpRight size={13} /> Income minus expenses</small></div>
