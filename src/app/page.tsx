@@ -316,7 +316,7 @@ export default function Home() {
       setAutoPriceRefreshStarted(true);
       void refreshMarketPrices();
     }
-  }, [page, loading, investments.length, autoPriceRefreshStarted, refreshMarketPrices]);
+  }, [page, loading, investments, autoPriceRefreshStarted, refreshMarketPrices]);
 
   async function saveInvestmentActivity(payload: { action: "buy" | "sell"; units: number; unit_price: number; fees: number; occurred_on: string; notes: string | null }) {
     if (!supabase || !user || !investmentAction) throw new Error("Sign in to record an investment transaction.");
