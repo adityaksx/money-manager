@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { CSSProperties } from "react";
-import { dateKey, todayISO } from "@/lib/format";
+import { dateKey, formatINR, todayISO } from "@/lib/format";
+import { calculateFixedDepositValue, type FixedDepositFrequency } from "@/lib/investment-portfolio";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { DEFAULT_CATEGORIES, type CategoryRecord } from "@/lib/categories";
 
 type Account = { id:string; name:string; account_type:string; opening_balance:number };
 type Transaction = { id:string; account_id:string|null; kind:"income"|"expense"; amount:number; category:string; description:string; occurred_on:string; created_at:string };
-type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"other"; name:string; symbol:string|null; platform:string|null; exchange?:string|null; units:number; invested_amount:number; current_value:number; current_price?:number|null; price_updated_at?:string|null; price_source?:string|null; purchase_date:string; notes:string|null };
+type Investment = { id:string; asset_type:"stock"|"mutual_fund"|"etf"|"gold"|"other"|"fixed_deposit"; name:string; symbol:string|null; platform:string|null; exchange?:string|null; units:number; invested_amount:number; current_value:number; current_price?:number|null; price_updated_at?:string|null; price_source?:string|null; annual_interest_rate?:number|null; maturity_date?:string|null; compounding_frequency?:FixedDepositFrequency|null; purchase_date:string; notes:string|null };
 type Kind = "transaction"|"account"|"budget"|"investment"|"adjustment";
 
 const fieldStyle:CSSProperties={display:"grid",gap:7,minWidth:0};
@@ -34,11 +35,15 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
  const [notes,setNotes]=useState(investment?.notes??""); const [adjustmentAmount,setAdjustmentAmount]=useState("");
  const [exchange,setExchange]=useState(investment?.exchange??"NSE");
  const [fees,setFees]=useState("0");
+ const [fdPrincipal,setFdPrincipal]=useState(investment?.asset_type==="fixed_deposit"?String(investment.invested_amount):"");
+ const [fdRate,setFdRate]=useState(investment?.annual_interest_rate!=null?String(investment.annual_interest_rate):"");
+ const [fdMaturity,setFdMaturity]=useState(investment?.maturity_date??"");
+ const [fdFrequency,setFdFrequency]=useState<FixedDepositFrequency>(investment?.compounding_frequency??"quarterly");
  const [purchasePrice,setPurchasePrice]=useState(investment&&investment.units>0?String(investment.invested_amount/investment.units):"");
  const [currentPrice,setCurrentPrice]=useState(investment?.current_price?String(investment.current_price):investment&&investment.units>0?String(investment.current_value/investment.units):"");
  const [adjustmentNote,setAdjustmentNote]=useState("Balance correction");
  useEffect(()=>{if(selectedAccountId)setAccountId(selectedAccountId);},[selectedAccountId]);
- const title:Record<Kind,string>={transaction:transaction?"Edit transaction":"Add transaction",account:"Add account",budget:"Set monthly budget",investment:investment?"Edit investment":"Add investment",adjustment:"Adjust account balance"};
+ const title:Record<Kind,string>={transaction:transaction?"Edit transaction":"Add transaction",account:"Add account",budget:"Set monthly budget",investment:investment?(investment.asset_type==="fixed_deposit"?"Edit fixed deposit":"Edit investment"):"Add investment",adjustment:"Adjust account balance"};
  async function submit(e:React.FormEvent<HTMLFormElement>){
   e.preventDefault();setBusy(true);setError("");
   try{
@@ -56,6 +61,15 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
     payload={category:budgetCategory,monthly_limit:Number(budgetLimit),month:dateKey(new Date(new Date().getFullYear(),new Date().getMonth(),1))};
    }else if(kind==="investment"){
     if(!assetName.trim())throw new Error("Enter the investment name.");
+    if(assetType==="fixed_deposit"){
+     const principal=Number(fdPrincipal),rate=Number(fdRate);
+     if(!Number.isFinite(principal)||principal<=0)throw new Error("Enter a principal amount greater than zero.");
+     if(!Number.isFinite(rate)||rate<0||rate>100)throw new Error("Enter a valid annual interest rate between 0 and 100.");
+     if(!date||!fdMaturity||fdMaturity<=date)throw new Error("Maturity date must be after the deposit opening date.");
+     const currentValue=calculateFixedDepositValue(principal,rate,date,fdMaturity,fdFrequency,todayISO());
+     const common={asset_type:"fixed_deposit" as const,name:assetName.trim(),symbol:null,platform:platform.trim()||null,exchange:null,units:1,invested_amount:principal,current_value:currentValue,current_price:currentValue,annual_interest_rate:rate,maturity_date:fdMaturity,compounding_frequency:fdFrequency,price_source:"Estimated FD value",price_updated_at:new Date().toISOString(),purchase_date:date,notes:notes.trim()||null};
+     payload=investment?{update:common}:{investment:common,activity:null};
+    }else{
     const quantity=Number(units);
     const charges=Number(fees||0);
     if(!Number.isFinite(quantity)||quantity<=0)throw new Error("Enter units greater than zero.");
@@ -93,6 +107,7 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
      if(!Number.isFinite(marketPrice)||marketPrice<=0)throw new Error("Enter a valid current price per unit.");
      payload={update:{asset_type:assetType,name:assetName.trim(),symbol:symbol.trim()||null,platform:platform.trim()||null,exchange:exchange.trim()||null,current_price:marketPrice,current_value:quantity*marketPrice,price_source:"Manual price",price_updated_at:new Date().toISOString(),notes:notes.trim()||null}};
     }
+    }
    }else{
     if(!selectedAccountId&&!accountId)throw new Error("Choose an account.");
     if(!adjustmentAmount||Number(adjustmentAmount)===0)throw new Error("Enter a non-zero adjustment. Use negative values to reduce the balance.");
@@ -125,20 +140,32 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
   <Field label="Budget period" full><input style={{...controlStyle,background:"#f8f9fb"}} readOnly value={new Date().toLocaleDateString("en-IN",{month:"long",year:"numeric"})}/></Field>
  </>}
  {kind==="investment"&&<>
-  <Field label="Asset class"><Select value={assetType} onChange={v=>setAssetType(v as Investment["asset_type"])}><option value="stock">Stock</option><option value="mutual_fund">Mutual fund (India)</option><option value="etf">ETF</option><option value="gold">Gold</option><option value="other">Other</option></Select></Field>
-  <Field label="Investment name"><Input value={assetName} onChange={setAssetName} placeholder="e.g. Reliance Industries" required/></Field>
-  <Field label={assetType==="mutual_fund"?"AMFI scheme code / ISIN":"Market symbol"}><Input value={symbol} onChange={setSymbol} placeholder={assetType==="mutual_fund"?"e.g. 120586 or INF109K01480":assetType==="stock"||assetType==="etf"?"e.g. RELIANCE, TCS, GOLDBEES":"Optional"}/></Field>
-  <Field label="Exchange / market"><Select value={exchange} onChange={setExchange}><option value="">Not specified</option><option value="NSE">NSE (India)</option><option value="BSE">BSE (India)</option><option value="NASDAQ">NASDAQ / US</option><option value="NYSE">NYSE / US</option><option value="OTHER">Other</option></Select></Field>
-  <Field label="Platform / broker"><Input value={platform} onChange={setPlatform} placeholder="e.g. Zerodha, Groww"/></Field>
-  {!investment&&<>
-   <Field label="Buy date"><Input value={date} onChange={setDate} type="date" required/></Field>
-   <Field label="Units purchased"><Input value={units} onChange={setUnits} type="number" min="0.000001" step="0.000001" placeholder="e.g. 10" required/></Field>
-   <Field label="Purchase price per unit (₹)"><Input value={purchasePrice} onChange={setPurchasePrice} type="number" min="0" step="0.000001" placeholder="Leave blank to fetch history"/></Field>
-   <Field label="Fees / taxes (₹)"><Input value={fees} onChange={setFees} type="number" min="0" step="0.01" placeholder="0"/></Field>
+  <Field label="Asset class"><Select value={assetType} onChange={v=>setAssetType(v as Investment["asset_type"])}><option value="stock">Stock</option><option value="mutual_fund">Mutual fund (India)</option><option value="etf">ETF</option><option value="gold">Gold</option><option value="fixed_deposit">Fixed deposit (FD)</option><option value="other">Other</option></Select></Field>
+  <Field label={assetType==="fixed_deposit"?"Deposit / bank name":"Investment name"}><Input value={assetName} onChange={setAssetName} placeholder={assetType==="fixed_deposit"?"e.g. SBI Tax Saver FD":"e.g. Reliance Industries"} required/></Field>
+  {assetType==="fixed_deposit"?<>
+   <Field label="Bank / issuer"><Input value={platform} onChange={setPlatform} placeholder="e.g. SBI, HDFC Bank"/></Field>
+   <Field label="Principal deposited (₹)"><Input value={fdPrincipal} onChange={setFdPrincipal} type="number" min="0.01" step="0.01" placeholder="e.g. 100000" required/></Field>
+   <Field label="Date opened"><Input value={date} onChange={setDate} type="date" required/></Field>
+   <Field label="Maturity date"><Input value={fdMaturity} onChange={setFdMaturity} type="date" min={date} required/></Field>
+   <Field label="Annual interest rate (%)"><Input value={fdRate} onChange={setFdRate} type="number" min="0" step="0.01" placeholder="e.g. 7.1" required/></Field>
+   <Field label="Compounding frequency"><Select value={fdFrequency} onChange={v=>setFdFrequency(v as FixedDepositFrequency)}><option value="daily">Daily</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="half_yearly">Half-yearly</option><option value="yearly">Yearly</option></Select></Field>
+   <Field label="Notes" full><Input value={notes} onChange={setNotes} placeholder="Optional note (avoid storing sensitive credentials)"/></Field>
+   {Number(fdPrincipal)>0&&Number(fdRate)>=0&&date&&fdMaturity>date&&<div className="fd-projection" style={{gridColumn:"1/-1"}}><span className="fd-projection-label">Estimated maturity value</span><strong>{formatINR(calculateFixedDepositValue(Number(fdPrincipal),Number(fdRate),date,fdMaturity,fdFrequency,fdMaturity))}</strong><span>Estimated interest: {formatINR(Math.max(0,calculateFixedDepositValue(Number(fdPrincipal),Number(fdRate),date,fdMaturity,fdFrequency,fdMaturity)-Number(fdPrincipal)))}</span></div>}
+   <p className="transaction-meta" style={{gridColumn:"1/-1",lineHeight:1.5,margin:0}}>Values are estimates using the entered annual rate and compounding frequency. Actual proceeds may differ because of tax, payout options, penalties, or bank-specific day-count rules.</p>
+  </>:<>
+   <Field label={assetType==="mutual_fund"?"AMFI scheme code / ISIN":"Market symbol"}><Input value={symbol} onChange={setSymbol} placeholder={assetType==="mutual_fund"?"e.g. 120586 or INF109K01480":assetType==="stock"||assetType==="etf"?"e.g. RELIANCE, TCS, GOLDBEES":"Optional"}/></Field>
+   <Field label="Exchange / market"><Select value={exchange} onChange={setExchange}><option value="">Not specified</option><option value="NSE">NSE (India)</option><option value="BSE">BSE (India)</option><option value="NASDAQ">NASDAQ / US</option><option value="NYSE">NYSE / US</option><option value="OTHER">Other</option></Select></Field>
+   <Field label="Platform / broker"><Input value={platform} onChange={setPlatform} placeholder="e.g. Zerodha, Groww"/></Field>
+   {!investment&&<>
+    <Field label="Buy date"><Input value={date} onChange={setDate} type="date" required/></Field>
+    <Field label="Units purchased"><Input value={units} onChange={setUnits} type="number" min="0.000001" step="0.000001" placeholder="e.g. 10" required/></Field>
+    <Field label="Purchase price per unit (₹)"><Input value={purchasePrice} onChange={setPurchasePrice} type="number" min="0" step="0.000001" placeholder="Leave blank to fetch history"/></Field>
+    <Field label="Fees / taxes (₹)"><Input value={fees} onChange={setFees} type="number" min="0" step="0.01" placeholder="0"/></Field>
+   </>}
+   <Field label="Current price per unit (₹)"><Input value={currentPrice} onChange={setCurrentPrice} type="number" min="0" step="0.000001" placeholder={investment?"Enter a manual price":"Leave blank to fetch latest price"}/></Field>
+   <Field label="Notes" full><Input value={notes} onChange={setNotes} placeholder="Optional note"/></Field>
+   <p className="transaction-meta" style={{gridColumn:"1/-1",lineHeight:1.5,margin:0}}>{investment?"Saving a manual current price updates this holding; use Refresh prices to fetch the provider quote again.":"Leave the purchase price blank to look up the price around your buy date. Stocks/ETFs use Yahoo Finance symbols; Indian mutual funds use an AMFI scheme code or ISIN. If a quote is unavailable, enter prices manually."}</p>
   </>}
-  <Field label="Current price per unit (₹)"><Input value={currentPrice} onChange={setCurrentPrice} type="number" min="0" step="0.000001" placeholder={investment?"Enter a manual price":"Leave blank to fetch latest price"}/></Field>
-  <Field label="Notes" full><Input value={notes} onChange={setNotes} placeholder="Optional note"/></Field>
-  <p className="transaction-meta" style={{gridColumn:"1/-1",lineHeight:1.5,margin:0}}>{investment?"Saving a manual current price updates this holding; use Refresh prices to fetch the provider quote again.":"Leave the purchase price blank to look up the price around your buy date. Stocks/ETFs use Yahoo Finance symbols; Indian mutual funds use an AMFI scheme code or ISIN. If a quote is unavailable, enter prices manually."}</p>
  </>}
  {kind==="adjustment"&&<>
   <Field label="Account" full><Select value={selectedAccountId||accountId} onChange={setAccountId}>{accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
