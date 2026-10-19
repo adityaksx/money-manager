@@ -1,4 +1,4 @@
-const CACHE_NAME = "money-manager-shell-v1";
+const CACHE_NAME = "rupeetrail-shell-v1";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -12,7 +12,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key.startsWith("money-manager-shell-") && key !== CACHE_NAME)
+      keys.filter((key) => key.startsWith("rupeetrail-shell-") && key !== CACHE_NAME)
         .map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
