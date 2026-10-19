@@ -264,7 +264,7 @@ export default function Home() {
     const data=[head,...transactions.map(t=>[t.occurred_on,t.kind,t.amount,t.category,t.description,t.account_id?accounts.find(a=>a.id===t.account_id)?.name??"": "",refundTotals.get(t.id)??0,t.kind==="expense"?Math.max(0,num(t.amount)-(refundTotals.get(t.id)??0)):""])];
     const csv="\uFEFF"+data.map(row=>row.map(quote).join(",")).join("\r\n");
     const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
-    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="money-manager-transactions.csv";a.click();URL.revokeObjectURL(url);
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="rupeetrail-transactions.csv";a.click();URL.revokeObjectURL(url);
   }
 
   const refreshMarketPrices = useCallback(async () => {
