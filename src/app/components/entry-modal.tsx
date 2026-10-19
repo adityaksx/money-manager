@@ -65,7 +65,8 @@ export default function EntryModal({kind,accounts,selectedAccountId,transaction,
      const principal=Number(fdPrincipal),rate=Number(fdRate);
      if(!Number.isFinite(principal)||principal<=0)throw new Error("Enter a principal amount greater than zero.");
      if(!Number.isFinite(rate)||rate<0||rate>100)throw new Error("Enter a valid annual interest rate between 0 and 100.");
-     if(!date||!fdMaturity||fdMaturity<=date)throw new Error("Maturity date must be after the deposit opening date.");
+     if(!date||date>todayISO())throw new Error("Deposit opening date cannot be in the future.");
+     if(!fdMaturity||fdMaturity<=date)throw new Error("Maturity date must be after the deposit opening date.");
      const currentValue=calculateFixedDepositValue(principal,rate,date,fdMaturity,fdFrequency,todayISO());
      const common={asset_type:"fixed_deposit" as const,name:assetName.trim(),symbol:null,platform:platform.trim()||null,exchange:null,units:1,invested_amount:principal,current_value:currentValue,current_price:currentValue,annual_interest_rate:rate,maturity_date:fdMaturity,compounding_frequency:fdFrequency,price_source:"Estimated FD value",price_updated_at:new Date().toISOString(),purchase_date:date,notes:notes.trim()||null};
      payload=investment?{update:common}:{investment:common,activity:null};
