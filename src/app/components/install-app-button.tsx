@@ -95,7 +95,7 @@ export default function InstallAppButton() {
               {isIOS ? (
                 <div className="pwa-instructions">
                   <p>On your iPhone or iPad, open this website in <strong>Safari</strong>, then:</p>
-                  <div className="pwa-step"><span>1</span><div><strong>Tap Share</strong><p>Use the Share icon in Safari's toolbar.</p><span className="pwa-symbol"><Share2 size={17} /> Share</span></div></div>
+                  <div className="pwa-step"><span>1</span><div><strong>Tap Share</strong><p>Use the Share icon in the Safari toolbar.</p><span className="pwa-symbol"><Share2 size={17} /> Share</span></div></div>
                   <div className="pwa-step"><span>2</span><div><strong>Choose “Add to Home Screen”</strong><p>You may need to scroll the Share menu to find it.</p><span className="pwa-symbol"><Plus size={17} /> Add to Home Screen</span></div></div>
                   <div className="pwa-step"><span>3</span><div><strong>Tap Add</strong><p>The Money Manager icon will appear on your home screen.</p></div></div>
                 </div>
