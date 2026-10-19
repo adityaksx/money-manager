@@ -1,7 +1,7 @@
 # Setup and deployment
 
 ## Production Supabase project
-Money Manager uses its own Supabase project, separate from FlowLedger.
+RupeeTrail uses its own Supabase project, separate from FlowLedger.
 
 - Project dashboard: https://supabase.com/dashboard/project/kchvzgocrsheqekanxoe
 - Project URL: https://kchvzgocrsheqekanxoe.supabase.co
@@ -16,6 +16,7 @@ Money Manager uses its own Supabase project, separate from FlowLedger.
 - Automatic price lookups require an Indian rupee quote for now. Foreign-currency stocks are not converted into INR automatically, to avoid misleading portfolio totals.
 - Gold, other assets, and unsupported tickers can use a manual per-unit price. If a historical quote is unavailable, enter the buy price manually.
 - No broker account is connected. User-entered transaction history remains the source of units and cost basis.
+- Fixed deposits are tracked as a separate investment class with principal, annual interest rate, compounding frequency, opening date, and maturity date. Current value and maturity value are estimated using compound interest. Estimates do not include tax, premature withdrawal penalties, payout options, or bank-specific day-count rules.
 
 ## Monthly transaction summaries, transfers, imports, refunds, categories, and personal debts
 - The Transactions page defaults to the current month. Use the month selector to inspect any month with activity or choose All months; visible income, net expenses, net cash flow, transaction count, and the transaction list all follow that selection plus search/type filters.
@@ -34,8 +35,8 @@ date,type,amount,category,description,account
 ~~~
 Use positive amounts with type set to income or expense. The import wizard recognizes common date, narration/description, category, debit/credit, and account-column variants. It does not import refunds or personal debts as transaction types; record those using the dedicated features after importing.
 
-## Install Money Manager on a phone
-Money Manager is configured as an installable Progressive Web App (PWA), using the web app manifest, generated 192×192/512×512 icons, Apple home-screen icon, and a minimal service worker. The service worker only keeps an offline information page available; it does not cache authenticated account pages or financial data.
+## Install RupeeTrail on a phone
+RupeeTrail is configured as an installable Progressive Web App (PWA), using the web app manifest, generated 192×192/512×512 icons, Apple home-screen icon, and a minimal service worker. The service worker only keeps an offline information page available; it does not cache authenticated account pages or financial data.
 
 - **Android / Chrome:** Open the production website, tap **Install app** in the floating action, then accept the browser prompt. If the native prompt is not available, open Chrome's menu (⋮) and choose **Install app** or **Add to Home screen**.
 - **iPhone / iPad:** Open the website in Safari, tap **Share**, choose **Add to Home Screen**, then tap **Add**. iOS Safari does not expose Chrome's beforeinstallprompt event, so the site shows manual instructions.
@@ -46,8 +47,9 @@ Money Manager is configured as an installable Progressive Web App (PWA), using t
 2. Add this Authorized redirect URI in Google Cloud Console:
    `https://kchvzgocrsheqekanxoe.supabase.co/auth/v1/callback`
 3. In Supabase → Authentication → Sign In / Providers → Google, enable Google and enter the Google client ID and client secret.
-4. In Supabase → Authentication → URL Configuration, set the Site URL to `https://money-manager-nu-dusky.vercel.app`.
+4. In Supabase → Authentication → URL Configuration, set the Site URL to `https://rupeetrail.vercel.app`.
 5. Add these Additional Redirect URLs:
+   - `https://rupeetrail.vercel.app/**`
    - `https://money-manager-nu-dusky.vercel.app/**`
    - `https://money-manager-aditya-kumars-projects-a61d8bf4.vercel.app/**`
    - `http://localhost:3000/**`
