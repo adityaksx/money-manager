@@ -28,6 +28,8 @@ alter table public.mm_investments add column if not exists exchange text;
 alter table public.mm_investments add column if not exists current_price numeric(18,6) check(current_price is null or current_price >= 0);
 alter table public.mm_investments add column if not exists price_updated_at timestamptz;
 alter table public.mm_investments add column if not exists price_source text;
+alter table public.mm_investments drop constraint if exists mm_investments_asset_type_check;
+alter table public.mm_investments add constraint mm_investments_asset_type_check check(asset_type in ('stock','mutual_fund','etf','gold','other','fixed_deposit'));
 alter table public.mm_investments add column if not exists annual_interest_rate numeric(7,4);
 alter table public.mm_investments add column if not exists maturity_date date;
 alter table public.mm_investments add column if not exists compounding_frequency text not null default 'quarterly';
