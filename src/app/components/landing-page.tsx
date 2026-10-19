@@ -1,7 +1,7 @@
 "use client";
 
 import Brand from "@/app/components/brand";
-import { ArrowDownRight, ArrowLeftRight, ArrowRight, ArrowUpRight, BadgeCheck, Banknote, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, CircleHelp, Landmark, LockKeyhole, PieChart, ShieldCheck, Sparkles, Target, Wallet } from "lucide-react";
+import { ArrowDownRight, ArrowLeftRight, ArrowRight, ArrowUpRight, Banknote, CalendarClock, ChartNoAxesCombined, Check, ChevronRight, CircleHelp, Landmark, LockKeyhole, PieChart, ShieldCheck, Sparkles, Target, Wallet } from "lucide-react";
 
 type LandingPageProps = {
   configured: boolean;
