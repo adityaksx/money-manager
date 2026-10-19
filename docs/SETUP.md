@@ -17,12 +17,14 @@ Money Manager uses its own Supabase project, separate from FlowLedger.
 - Gold, other assets, and unsupported tickers can use a manual per-unit price. If a historical quote is unavailable, enter the buy price manually.
 - No broker account is connected. User-entered transaction history remains the source of units and cost basis.
 
-## Transaction imports, refunds, categories, and personal debts
+## Monthly transaction summaries, transfers, imports, refunds, categories, and personal debts
+- The Transactions page defaults to the current month. Use the month selector to inspect any month with activity or choose All months; visible income, net expenses, net cash flow, transaction count, and the transaction list all follow that selection plus search/type filters.
+- Transfer money between any two of your accounts from Transactions or Bank accounts. Transfers reduce the source balance and increase the destination balance, but are recorded separately rather than as income or expenses, so they do not inflate cash-flow stats.
 - Transactions can be imported from CSV, XLSX, or XLS files in the Transactions page. The first worksheet is read, with a preview before import. A template is available in the import dialog. Required fields are date and amount; a type column (income/expense) is strongly recommended. Optional columns are category, description, and account. Imports are limited to 1,000 rows at a time.
 - Refunds attach to an expense transaction with a received date, amount, and note. Multiple partial refunds are supported, but the database rejects total refunds above the original expense. Refunds reduce net spending and are added back to cash for the original account.
 - Default categories are added for each signed-in user. Custom income and expense categories are stored in the mm_categories table and can be managed from Transactions. The free-text category saved on each historical transaction is retained when a custom category is removed.
 - The People page tracks amounts lent to friends and amounts borrowed, with dated, partial repayments. Loan and repayment actions create linked income/expense transactions so account cash balances update. Linked loan transactions cannot be deleted from the Transactions page while the People record depends on them.
-- New tables use RLS: mm_transaction_refunds, mm_categories, mm_debts, and mm_debt_repayments. Refund and repayment totals are also validated in database triggers, not just in the form UI.
+- New tables use RLS: mm_transaction_refunds, mm_categories, mm_debts, mm_debt_repayments, and mm_account_transfers. Transfer rows are validated to ensure both accounts belong to the signed-in user and are different accounts. Refund and repayment totals are also validated in database triggers, not just in the form UI.
 
 ### Recommended import columns
 ~~~csv
@@ -56,6 +58,6 @@ The Vercel `money-manager` project is connected to this GitHub repository. These
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
 ## Accounting model
-- Cash balance = opening balance + recorded income − recorded expense + manual balance adjustments.
+- Cash balance = opening balance + recorded income − recorded expense + refunds received + transfers in − transfers out + manual balance adjustments.
 - Investment holdings remain separate from bank account balances.
 - Investment buy/sell records affect units and cost basis but do not automatically change a linked bank account's cash balance. Record the cash-side transaction separately if you need a complete cash-flow ledger.
