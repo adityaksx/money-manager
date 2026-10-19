@@ -533,9 +533,9 @@ function InvestmentsPage(p:{
  const unrealized=p.marketValue-p.invested;
  return <div>
   <div className="grid metric-grid" style={{marginBottom:16}}>
-   <Metric label="Market value" value={p.marketValue} note="Units × latest saved price" icon={ChartNoAxesCombined}/>
-   <Metric label="Cost basis held" value={p.invested} note="Weighted-average cost of units still held" icon={CircleDollarSign} tone="blue"/>
-   <Metric label="Unrealized P/L" value={(unrealized>=0?"+":"−")+formatINR(Math.abs(unrealized))} note={p.invested?(100*unrealized/p.invested).toFixed(1)+"% on open positions":"Add purchases to calculate"} icon={unrealized>=0?TrendingUp:TrendingDown} tone={unrealized>=0?"green":"red"}/>
+   <Metric label="Portfolio value" value={p.marketValue} note="Market quotes + estimated FD interest" icon={ChartNoAxesCombined}/>
+   <Metric label="Invested principal" value={p.invested} note="FD principal + remaining investment cost basis" icon={CircleDollarSign} tone="blue"/>
+   <Metric label="Unrealized gain / interest" value={(unrealized>=0?"+":"−")+formatINR(Math.abs(unrealized))} note={p.invested?(100*unrealized/p.invested).toFixed(1)+"% on open assets":"Add assets to calculate"} icon={unrealized>=0?TrendingUp:TrendingDown} tone={unrealized>=0?"green":"red"}/>
    <Metric label="Realized P/L" value={(p.realizedGain>=0?"+":"−")+formatINR(Math.abs(p.realizedGain))} note="From recorded sales" icon={Activity} tone={p.realizedGain>=0?"green":"red"}/>
   </div>
   <section className="panel" style={{marginBottom:16}}>
@@ -546,7 +546,7 @@ function InvestmentsPage(p:{
    <div className="panel-head"><div><h2 className="panel-title">Your holdings</h2><div className="panel-subtitle">Record dated buys/sells and update prices from market data</div></div><div className="filters"><button className="btn" onClick={p.onRefreshPrices} disabled={p.refreshingPrices}>{p.refreshingPrices?<LoaderCircle size={14} className="spin"/>:<Activity size={14}/>} {p.refreshingPrices?"Refreshing…":"Refresh prices"}</button><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add investment</button></div></div>
    <div className="panel-body">
     <div className="filters" style={{marginBottom:16}}><select className="search" value={filter} onChange={e=>setFilter(e.target.value)} style={{width:"auto"}}><option value="all">All asset types</option><option value="stock">Stocks</option><option value="mutual_fund">Mutual funds</option><option value="etf">ETFs</option><option value="gold">Gold</option><option value="fixed_deposit">Fixed deposits</option><option value="other">Other</option></select><span className="transaction-meta">Market quotes are indicative. Fixed deposits show estimated accrued interest and maturity value.</span></div>
-    {filtered.length===0?<div className="empty">No holdings match this filter. Add an asset and its first purchase.</div>:<div className="table-wrap"><table className="data-table"><thead><tr><th>Asset</th><th>Units</th><th className="right">Avg. cost</th><th className="right">Price / unit</th><th className="right">Market value</th><th className="right">Unrealized P/L</th><th>Price source</th><th></th></tr></thead><tbody>{filtered.map(i=>{
+    {filtered.length===0?<div className="empty">No holdings match this filter. Add an asset and its first purchase.</div>:<div className="table-wrap"><table className="data-table"><thead><tr><th>Asset</th><th>Units</th><th className="right">Cost / principal</th><th className="right">Price / FD rate</th><th className="right">Market value</th><th className="right">Unrealized P/L</th><th>Price source</th><th></th></tr></thead><tbody>{filtered.map(i=>{
       const delta=i.unrealizedGain,Icon=assetIcons[i.asset_type];
       const history=p.activities.filter(a=>a.investment_id===i.id).slice().sort((a,b)=>b.occurred_on.localeCompare(a.occurred_on)||b.created_at.localeCompare(a.created_at));
       const expanded=expandedId===i.id;
