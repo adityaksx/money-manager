@@ -242,3 +242,63 @@ create policy debt_repayments_delete_own on public.mm_debt_repayments for delete
 revoke all on public.mm_accounts,public.mm_transactions,public.mm_budgets,public.mm_investments,public.mm_account_adjustments,public.mm_investment_transactions,public.mm_transaction_refunds,public.mm_categories,public.mm_debts,public.mm_debt_repayments from anon;
 grant select,insert,update,delete on public.mm_accounts,public.mm_transactions,public.mm_budgets,public.mm_investments,public.mm_account_adjustments,public.mm_investment_transactions,public.mm_transaction_refunds,public.mm_categories,public.mm_debts,public.mm_debt_repayments to authenticated;
 
+-- Internal account transfers keep balances aligned without inflating income or expenses.
+create table if not exists public.mm_account_transfers (
+ id uuid primary key default gen_random_uuid(),
+ user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+ from_account_id uuid not null references public.mm_accounts(id) on delete restrict,
+ to_account_id uuid not null references public.mm_accounts(id) on delete restrict,
+ amount numeric(14,2) not null check(amount > 0),
+ occurred_on date not null default current_date,
+ note text,
+ created_at timestamptz not null default now(),
+ constraint mm_account_transfers_distinct_accounts check(from_account_id <> to_account_id)
+);
+create index if not exists mm_account_transfers_user_date_idx on public.mm_account_transfers(user_id,occurred_on desc);
+create index if not exists mm_account_transfers_from_idx on public.mm_account_transfers(from_account_id);
+create index if not exists mm_account_transfers_to_idx on public.mm_account_transfers(to_account_id);
+
+create or replace function public.mm_validate_account_transfer()
+returns trigger language plpgsql as $$
+begin
+ if not exists(select 1 from public.mm_accounts a where a.id=new.from_account_id and a.user_id=new.user_id) then
+  raise exception 'Source account does not belong to this user.';
+ end if;
+ if not exists(select 1 from public.mm_accounts a where a.id=new.to_account_id and a.user_id=new.user_id) then
+  raise exception 'Destination account does not belong to this user.';
+ end if;
+ if new.from_account_id=new.to_account_id then raise exception 'Source and destination accounts must be different.'; end if;
+ return new;
+end; $$;
+drop trigger if exists mm_account_transfer_validate on public.mm_account_transfers;
+create trigger mm_account_transfer_validate before insert or update on public.mm_account_transfers
+for each row execute function public.mm_validate_account_transfer();
+
+alter table public.mm_account_transfers enable row level security;
+drop policy if exists account_transfers_select_own on public.mm_account_transfers;
+create policy account_transfers_select_own on public.mm_account_transfers for select to authenticated using (
+ user_id=(select auth.uid())
+ and exists(select 1 from public.mm_accounts a where a.id=from_account_id and a.user_id=(select auth.uid()))
+ and exists(select 1 from public.mm_accounts a where a.id=to_account_id and a.user_id=(select auth.uid()))
+);
+drop policy if exists account_transfers_insert_own on public.mm_account_transfers;
+create policy account_transfers_insert_own on public.mm_account_transfers for insert to authenticated with check (
+ user_id=(select auth.uid())
+ and exists(select 1 from public.mm_accounts a where a.id=from_account_id and a.user_id=(select auth.uid()))
+ and exists(select 1 from public.mm_accounts a where a.id=to_account_id and a.user_id=(select auth.uid()))
+);
+drop policy if exists account_transfers_update_own on public.mm_account_transfers;
+create policy account_transfers_update_own on public.mm_account_transfers for update to authenticated using (
+ user_id=(select auth.uid())
+ and exists(select 1 from public.mm_accounts a where a.id=from_account_id and a.user_id=(select auth.uid()))
+ and exists(select 1 from public.mm_accounts a where a.id=to_account_id and a.user_id=(select auth.uid()))
+) with check (
+ user_id=(select auth.uid())
+ and exists(select 1 from public.mm_accounts a where a.id=from_account_id and a.user_id=(select auth.uid()))
+ and exists(select 1 from public.mm_accounts a where a.id=to_account_id and a.user_id=(select auth.uid()))
+);
+drop policy if exists account_transfers_delete_own on public.mm_account_transfers;
+create policy account_transfers_delete_own on public.mm_account_transfers for delete to authenticated using(user_id=(select auth.uid()));
+
+revoke all on public.mm_account_transfers from anon;
+grant select,insert,update,delete on public.mm_account_transfers to authenticated;
