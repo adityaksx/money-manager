@@ -34,6 +34,13 @@ date,type,amount,category,description,account
 ~~~
 Use positive amounts with type set to income or expense. The import wizard recognizes common date, narration/description, category, debit/credit, and account-column variants. It does not import refunds or personal debts as transaction types; record those using the dedicated features after importing.
 
+## Install Money Manager on a phone
+Money Manager is configured as an installable Progressive Web App (PWA), using the web app manifest, generated 192×192/512×512 icons, Apple home-screen icon, and a minimal service worker. The service worker only keeps an offline information page available; it does not cache authenticated account pages or financial data.
+
+- **Android / Chrome:** Open the production website, tap **Install app** in the floating action, then accept the browser prompt. If the native prompt is not available, open Chrome's menu (⋮) and choose **Install app** or **Add to Home screen**.
+- **iPhone / iPad:** Open the website in Safari, tap **Share**, choose **Add to Home Screen**, then tap **Add**. iOS Safari does not expose Chrome's beforeinstallprompt event, so the site shows manual instructions.
+- Installation requires the production site over HTTPS. Signing in and loading financial data still requires an internet connection; offline mode intentionally shows a reconnection page rather than storing private data locally.
+
 ## Google OAuth setup
 1. In Google Cloud Console, create a Web application OAuth client.
 2. Add this Authorized redirect URI in Google Cloud Console:
