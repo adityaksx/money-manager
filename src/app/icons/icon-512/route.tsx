@@ -4,13 +4,9 @@ export const runtime = "edge";
 
 export async function GET() {
   return new ImageResponse(
-    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#172c28" }}>
-      <svg width="300" height="300" viewBox="0 0 100 100" fill="none" aria-label="Money Manager">
-        <path d="M23 35V29C23 23.5 27.5 19 33 19H70C75.5 19 80 23.5 80 29V35" stroke="#FFFFFF" strokeWidth="7" strokeLinecap="round"/>
-        <rect x="14" y="31" width="72" height="54" rx="12" fill="#FFFFFF"/>
-        <path d="M14 47H86" stroke="#DCEBE5" strokeWidth="4"/>
-        <rect x="55" y="53" width="31" height="22" rx="7" fill="#16856B"/>
-        <circle cx="64" cy="64" r="2.8" fill="#FFFFFF"/>
+    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#123b32" }}>
+      <svg width="300" height="300" viewBox="0 0 100 100" fill="none" aria-label="RupeeTrail">
+        <rect x="14" y="10" width="72" height="80" rx="20" fill="#FFFFFF"/><text x="19" y="59" fontSize="42" fontWeight="700" fontFamily="Arial" fill="#123b32">₹</text><path d="M17 72C32 63 43 73 58 68C67 65 74 64 83 55" stroke="#16856B" strokeWidth="5" strokeLinecap="round"/><circle cx="83" cy="55" r="4" fill="#87E4BD"/>
       </svg>
     </div>,
     { width: 512, height: 512 },
