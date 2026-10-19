@@ -11,6 +11,7 @@ import RefundModal, { type RefundRecord } from "@/app/components/refund-modal";
 import CategoriesModal from "@/app/components/categories-modal";
 import DebtModal, { type DebtRecord, type DebtRepaymentRecord, type DebtInput, type RepaymentInput } from "@/app/components/debt-modal";
 import PeoplePage, { type DebtPosition } from "@/app/components/people-page";
+import TransferModal, { type AccountTransfer, type AccountTransferInput } from "@/app/components/transfer-modal";
 import EntryModal from "@/app/entry-modal";
 import InvestmentActivityModal from "@/app/components/investment-activity-modal";
 import { calculateInvestmentPosition, type InvestmentActivity, type InvestmentPosition } from "@/lib/investment-portfolio";
@@ -31,6 +32,7 @@ const assetIcons: Record<Investment["asset_type"], typeof TrendingUp> = { stock:
 const num = (value: unknown) => Number(value ?? 0) || 0;
 function dateLabel(date: string) { return new Date(date + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
 function monthLabel(date = new Date()) { return date.toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
+function monthKeyLabel(key: string) { const [year, month] = key.split("-").map(Number); return new Date(year, month - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
 
 export default function Home() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
@@ -46,8 +48,11 @@ export default function Home() {
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
   const [debts, setDebts] = useState<DebtRecord[]>([]);
   const [debtRepayments, setDebtRepayments] = useState<DebtRepaymentRecord[]>([]);
+  const [transfers, setTransfers] = useState<AccountTransfer[]>([]);
   const [refundTarget, setRefundTarget] = useState<Transaction | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferSourceAccountId, setTransferSourceAccountId] = useState("");
   const [showCategories, setShowCategories] = useState(false);
   const [debtMode, setDebtMode] = useState<"new" | "repayment" | null>(null);
   const [repaymentTarget, setRepaymentTarget] = useState<DebtPosition | null>(null);
@@ -64,6 +69,7 @@ export default function Home() {
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [transactionFilter, setTransactionFilter] = useState<"all" | "income" | "expense">("all");
+  const [transactionMonth, setTransactionMonth] = useState(todayISO().slice(0, 7));
   const [period, setPeriod] = useState<"This month" | "Last 6 months">("This month");
   const refundTotals = useMemo(() => refunds.reduce((map, refund) => { map.set(refund.transaction_id, (map.get(refund.transaction_id) ?? 0) + num(refund.amount)); return map; }, new Map<string, number>()), [refunds]);
   const refundsByTransaction = useMemo(() => refunds.reduce((map, refund) => { const list=map.get(refund.transaction_id) ?? []; list.push(refund); map.set(refund.transaction_id,list); return map; }, new Map<string, RefundRecord[]>()), [refunds]);
@@ -74,7 +80,7 @@ export default function Home() {
     const defaultRows = (Object.entries(DEFAULT_CATEGORIES) as [TransactionKind,string[]][]).flatMap(([kind,names])=>names.map(name=>({user_id:user.id,kind,name,is_default:true})));
     const { error: seedError } = await supabase.from("mm_categories").upsert(defaultRows,{onConflict:"user_id,kind,name",ignoreDuplicates:true});
     if (seedError) console.warn("Could not seed default categories:", seedError.message);
-    const [a, t, b, i, adj, ia, rf, cat, d, dr] = await Promise.all([
+    const [a, t, b, i, adj, ia, rf, cat, d, dr, tr] = await Promise.all([
       supabase.from("mm_accounts").select("id,name,account_type,institution,opening_balance,color,created_at").order("created_at", { ascending: true }),
       supabase.from("mm_transactions").select("id,account_id,kind,amount,category,description,occurred_on,created_at").order("occurred_on", { ascending: false }).limit(5000),
       supabase.from("mm_budgets").select("id,category,monthly_limit,month").order("category"),
@@ -85,8 +91,9 @@ export default function Home() {
       supabase.from("mm_categories").select("id,user_id,kind,name,is_default,created_at").order("kind").order("name"),
       supabase.from("mm_debts").select("id,user_id,direction,person_name,amount,occurred_on,account_id,transaction_id,note,created_at").order("occurred_on", { ascending: false }),
       supabase.from("mm_debt_repayments").select("id,user_id,debt_id,amount,occurred_on,transaction_id,note,created_at").order("occurred_on", { ascending: true }),
+      supabase.from("mm_account_transfers").select("id,user_id,from_account_id,to_account_id,amount,occurred_on,note,created_at").order("occurred_on", { ascending: false }),
     ]);
-    const errors = [a.error, t.error, b.error, i.error, adj.error, ia.error, rf.error, cat.error, d.error, dr.error].filter(Boolean);
+    const errors = [a.error, t.error, b.error, i.error, adj.error, ia.error, rf.error, cat.error, d.error, dr.error, tr.error].filter(Boolean);
     if (errors.length) setNotice(errors[0]?.message ?? "Could not load your data.");
     else {
       setAccounts((a.data ?? []) as Account[]);
@@ -99,6 +106,7 @@ export default function Home() {
       setCategories((cat.data ?? []) as CategoryRecord[]);
       setDebts((d.data ?? []) as DebtRecord[]);
       setDebtRepayments((dr.data ?? []) as DebtRepaymentRecord[]);
+      setTransfers((tr.data ?? []) as AccountTransfer[]);
       setNotice("");
     }
     setLoading(false);
@@ -130,7 +138,7 @@ export default function Home() {
   async function signOut() {
     if (!supabase) return;
     await supabase.auth.signOut();
-    setUser(null); setAccounts([]); setTransactions([]); setBudgets([]); setInvestments([]); setInvestmentTransactions([]); setAccountAdjustments([]); setRefunds([]); setCategories([]); setDebts([]); setDebtRepayments([]); setInvestmentActionId(null); setAutoPriceRefreshStarted(false);
+    setUser(null); setAccounts([]); setTransactions([]); setBudgets([]); setInvestments([]); setInvestmentTransactions([]); setAccountAdjustments([]); setRefunds([]); setCategories([]); setDebts([]); setDebtRepayments([]); setTransfers([]); setInvestmentActionId(null); setAutoPriceRefreshStarted(false);
   }
   function openTransaction(transaction?: Transaction) {
     if(transaction&&(debts.some(d=>d.transaction_id===transaction.id)||debtRepayments.some(r=>r.transaction_id===transaction.id))){
@@ -141,6 +149,7 @@ export default function Home() {
     setModal("transaction");
   }
   function openInvestment(investment?: Investment) { setEditingInvestment(investment ?? null); setModal("investment"); }
+  function openTransfer(accountId = "") { setTransferSourceAccountId(accountId); setShowTransfer(true); }
   function notify(message: string) {
     setNotice(message);
     window.setTimeout(() => setNotice(current => current === message ? "" : current), 4500);
@@ -156,6 +165,19 @@ export default function Home() {
     setRefunds(old=>[...old,data as RefundRecord]);
     setRefundTarget(null);
     notify("Refund recorded. Net spending and account balance updated.");
+  }
+
+  async function saveTransfer(payload: AccountTransferInput) {
+    if (!supabase || !user) throw new Error("Sign in before making a transfer.");
+    if (payload.from_account_id === payload.to_account_id) throw new Error("Source and destination accounts must be different.");
+    if (!accounts.some(a => a.id === payload.from_account_id) || !accounts.some(a => a.id === payload.to_account_id)) throw new Error("Select two of your own accounts.");
+    if (!Number.isFinite(payload.amount) || payload.amount <= 0) throw new Error("Transfer amount must be greater than zero.");
+    const { data, error } = await supabase.from("mm_account_transfers").insert({ ...payload, user_id: user.id }).select("id,user_id,from_account_id,to_account_id,amount,occurred_on,note,created_at").single();
+    if (error) throw error;
+    setTransfers(old => [data as AccountTransfer, ...old]);
+    setShowTransfer(false);
+    setTransferSourceAccountId("");
+    notify("Transfer saved. Account balances updated; income and expense totals are unchanged.");
   }
 
   async function importTransactions(rows:ImportTransaction[]) {
@@ -332,7 +354,9 @@ export default function Home() {
     const tx = transactions.filter(t=>t.account_id===account.id);
     const adjustment = accountAdjustments.filter(a=>a.account_id===account.id).reduce((s,a)=>s+num(a.amount),0);
     const returned = refunds.filter(refund=>tx.some(t=>t.id===refund.transaction_id)).reduce((s,refund)=>s+num(refund.amount),0);
-    return { ...account, balance: num(account.opening_balance) + tx.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0) - tx.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0) + returned + adjustment };
+    const transferOut = transfers.filter(t => t.from_account_id === account.id).reduce((s, t) => s + num(t.amount), 0);
+    const transferIn = transfers.filter(t => t.to_account_id === account.id).reduce((s, t) => s + num(t.amount), 0);
+    return { ...account, balance: num(account.opening_balance) + tx.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0) - tx.filter(t=>t.kind==="expense").reduce((s,t)=>s+num(t.amount),0) + returned + adjustment - transferOut + transferIn };
   });
   const totalCash = cashBalances.reduce((s,a)=>s+a.balance,0);
   const investmentPositions: InvestmentPosition[] = useMemo(
@@ -368,9 +392,11 @@ export default function Home() {
     const repaid = repayments.reduce((s,r)=>s+num(r.amount),0);
     return {...debt,repaid,outstanding:Math.max(0,num(debt.amount)-repaid),repayments};
   });
+  const transactionMonths = [...new Set([todayISO().slice(0, 7), ...transactions.map(t => t.occurred_on.slice(0, 7))])].sort().reverse();
   const filteredTransactions = transactions.filter(t=>{
     const matchesType=transactionFilter==="all"||t.kind===transactionFilter,term=searchTerm.toLowerCase();
-    return matchesType&&(!term||[t.description,t.category,t.kind].some(s=>s.toLowerCase().includes(term)));
+    const matchesMonth=transactionMonth==="all"||t.occurred_on.slice(0,7)===transactionMonth;
+    return matchesMonth&&matchesType&&(!term||[t.description,t.category,t.kind].some(s=>s.toLowerCase().includes(term)));
   });
 
   if (checkingAuth) return <div className="sign-in-wrap"><div className="sign-in-card"><div className="skeleton" style={{width:160,height:20}}/><div className="skeleton" style={{width:"80%",height:32,marginTop:30}}/><div className="skeleton" style={{width:"100%",height:44,marginTop:24}}/></div></div>;
@@ -386,13 +412,14 @@ export default function Home() {
       {notice&&<div className="notice" style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}><span>{notice}</span><button className="icon-btn" onClick={()=>setNotice("")} aria-label="Dismiss"><X size={14}/></button></div>}
       {!loading&&accounts.length===0&&transactions.length===0&&investments.length===0&&page==="Overview"&&<div className="notice" style={{marginBottom:16}}>Your workspace is ready. Add a bank or cash account with its previous balance, then start recording transactions. Your data is private to your signed-in account.</div>}
       {page==="Overview"&&<OverviewPage loading={loading} income={income} expense={expense} cash={totalCash} investments={investmentValue} netWorth={netWorth} lastIncome={lastMonthIncome} lastExpense={lastMonthExpense} chartData={chartData} period={period} setPeriod={setPeriod} recent={recentTransactions} accountMap={new Map(accounts.map(a=>[a.id,a.name]))} budgets={currentBudgets} spentForBudget={spentForBudget} expenseByCategory={expenseByCategory} gainLoss={gainLoss} onAddBudget={()=>setModal("budget")} onNavigate={setPage} onEditTransaction={openTransaction} onDeleteTransaction={async t=>{if(debts.some(d=>d.transaction_id===t.id)||debtRepayments.some(r=>r.transaction_id===t.id)){notify("This transaction is linked to a People debt record. Manage it from People so the debt history stays consistent.");return;}if(!window.confirm("Delete this transaction and its refund history?")||!supabase)return;const {error}=await supabase.from("mm_transactions").delete().eq("id",t.id);if(error)notify(error.message);else{setTransactions(v=>v.filter(x=>x.id!==t.id));setRefunds(v=>v.filter(x=>x.transaction_id!==t.id));notify("Transaction deleted.");}}}/>}
-      {page==="Transactions"&&<TransactionsPage rows={filteredTransactions} accountMap={new Map(accounts.map(a=>[a.id,a.name]))} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filter={transactionFilter} setFilter={setTransactionFilter} refundTotals={refundTotals} onAdd={()=>openTransaction()} onImport={()=>setShowImport(true)} onExport={exportTransactionsCsv} onCategories={()=>setShowCategories(true)} onRefund={t=>setRefundTarget(t)} onEdit={openTransaction} onDelete={async t=>{if(debts.some(d=>d.transaction_id===t.id)||debtRepayments.some(r=>r.transaction_id===t.id)){notify("This transaction is linked to a People debt record. Manage it from People so the debt history stays consistent.");return;}if(!window.confirm("Delete this transaction and its refund history?")||!supabase)return;const {error}=await supabase.from("mm_transactions").delete().eq("id",t.id);if(error)notify(error.message);else{setTransactions(v=>v.filter(x=>x.id!==t.id));setRefunds(v=>v.filter(x=>x.transaction_id!==t.id));notify("Transaction deleted.");}}}/>}
+      {page==="Transactions"&&<TransactionsPage rows={filteredTransactions} accountMap={new Map(accounts.map(a=>[a.id,a.name]))} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filter={transactionFilter} setFilter={setTransactionFilter} monthFilter={transactionMonth} setMonthFilter={setTransactionMonth} monthOptions={transactionMonths} refundTotals={refundTotals} onAdd={()=>openTransaction()} onTransfer={()=>openTransfer()} onImport={()=>setShowImport(true)} onExport={exportTransactionsCsv} onCategories={()=>setShowCategories(true)} onRefund={t=>setRefundTarget(t)} onEdit={openTransaction} onDelete={async t=>{if(debts.some(d=>d.transaction_id===t.id)||debtRepayments.some(r=>r.transaction_id===t.id)){notify("This transaction is linked to a People debt record. Manage it from People so the debt history stays consistent.");return;}if(!window.confirm("Delete this transaction and its refund history?")||!supabase)return;const {error}=await supabase.from("mm_transactions").delete().eq("id",t.id);if(error)notify(error.message);else{setTransactions(v=>v.filter(x=>x.id!==t.id));setRefunds(v=>v.filter(x=>x.transaction_id!==t.id));notify("Transaction deleted.");}}}/>}
       {page==="Budgets"&&<BudgetsPage budgets={budgets} spend={spentForBudget} onAdd={()=>setModal("budget")} onDelete={async b=>{if(!window.confirm("Delete this budget?")||!supabase)return;const {error}=await supabase.from("mm_budgets").delete().eq("id",b.id);if(error)notify(error.message);else{setBudgets(v=>v.filter(x=>x.id!==b.id));notify("Budget deleted.");}}}/>}
-      {page==="Bank accounts"&&<AccountsPage accounts={cashBalances} transactions={transactions} onAdd={()=>setModal("account")} onAdjust={id=>{setSelectedAccountId(id);setModal("adjustment");}} onDelete={async a=>{if(!window.confirm("Delete this account?")||!supabase)return;const {error}=await supabase.from("mm_accounts").delete().eq("id",a.id);if(error)notify(error.message);else{setAccounts(v=>v.filter(x=>x.id!==a.id));notify("Account deleted.");void loadData();}}}/>}
+      {page==="Bank accounts"&&<AccountsPage accounts={cashBalances} transactions={transactions} onTransfer={accountId=>openTransfer(accountId)} onAdd={()=>setModal("account")} onAdjust={id=>{setSelectedAccountId(id);setModal("adjustment");}} onDelete={async a=>{if(!window.confirm("Delete this account?")||!supabase)return;const {error}=await supabase.from("mm_accounts").delete().eq("id",a.id);if(error)notify(error.message);else{setAccounts(v=>v.filter(x=>x.id!==a.id));notify("Account deleted.");void loadData();}}}/>}
       {page==="Investments"&&<InvestmentsPage rows={investmentPositions} activities={investmentTransactions} invested={invested} marketValue={investmentValue} gainLoss={gainLoss} realizedGain={realizedInvestmentGain} refreshingPrices={refreshingPrices} onRefreshPrices={()=>void refreshMarketPrices()} onActivity={i=>setInvestmentActionId(i.id)} onAdd={()=>openInvestment()} onEdit={openInvestment} onDelete={async i=>{if(!window.confirm("Delete this holding and its activity history?")||!supabase)return;const {error}=await supabase.from("mm_investments").delete().eq("id",i.id);if(error)notify(error.message);else{setInvestments(v=>v.filter(x=>x.id!==i.id));setInvestmentTransactions(v=>v.filter(x=>x.investment_id!==i.id));notify("Holding deleted.");}}}/>} 
       {page==="People"&&<PeoplePage debts={debtPositions} onAdd={()=>setDebtMode("new")} onRepay={d=>{setRepaymentTarget(d);setDebtMode("repayment");}}/>}
       </div></main><div className="mobile-nav"><NavItems page={page} setPage={setPage} mobile/></div>
     {showImport&&<TransactionImportModal accounts={accounts} categories={categories.map(c=>({kind:c.kind,name:c.name}))} onClose={()=>setShowImport(false)} onImport={importTransactions}/>}
+    {showTransfer&&<TransferModal accounts={accounts} initialSourceAccountId={transferSourceAccountId} onClose={()=>{setShowTransfer(false);setTransferSourceAccountId("");}} onSave={saveTransfer}/>} 
     {showCategories&&<CategoriesModal categories={categories} onClose={()=>setShowCategories(false)} onAdd={addCategory} onDelete={deleteCategory}/>}
     {refundTarget&&<RefundModal transaction={refundTarget} refunds={refundsByTransaction.get(refundTarget.id)??[]} onClose={()=>setRefundTarget(null)} onSave={saveRefund}/>}
     {debtMode&&<DebtModal kind={debtMode} accounts={accounts} debt={debtMode==="repayment"?repaymentTarget??undefined:undefined} onClose={()=>{setDebtMode(null);setRepaymentTarget(null);}} onSaveDebt={saveDebt} onSaveRepayment={saveDebtRepayment}/>}
@@ -449,8 +476,12 @@ function TransactionsPage(p:{
  setSearchTerm:(v:string)=>void;
  filter:"all"|"income"|"expense";
  setFilter:(v:"all"|"income"|"expense")=>void;
+ monthFilter:string;
+ setMonthFilter:(v:string)=>void;
+ monthOptions:string[];
  refundTotals:Map<string,number>;
  onAdd:()=>void;
+ onTransfer:()=>void;
  onImport:()=>void;
  onExport:()=>void;
  onCategories:()=>void;
@@ -461,11 +492,11 @@ function TransactionsPage(p:{
  const income=p.rows.filter(t=>t.kind==="income").reduce((s,t)=>s+num(t.amount),0);
  const expense=p.rows.filter(t=>t.kind==="expense").reduce((s,t)=>s+Math.max(0,num(t.amount)-(p.refundTotals.get(t.id)??0)),0);
  return <div>
-  <div className="grid metric-grid" style={{marginBottom:16}}><Metric label="Visible income" value={income} note="Based on current filters" icon={ArrowDownLeft}/><Metric label="Net expenses" value={expense} note={`${p.rows.length} transactions shown · after refunds`} icon={ArrowUpRight} tone="orange"/><Metric label="Net cash flow" value={income-expense} note="Income less net expenses" icon={Activity} tone={income>=expense?"green":"red"}/><Metric label="Transaction count" value={String(p.rows.length)} note="Latest recorded activity" icon={ArrowLeftRight} tone="blue"/></div>
+  <div className="grid metric-grid" style={{marginBottom:16}}><Metric label="Visible income" value={income} note={p.monthFilter==="all"?"All months · current filters":`${monthKeyLabel(p.monthFilter)} · current filters`} icon={ArrowDownLeft}/><Metric label="Net expenses" value={expense} note={`${p.rows.length} transactions shown · after refunds`} icon={ArrowUpRight} tone="orange"/><Metric label="Net cash flow" value={income-expense} note="Income less net expenses" icon={Activity} tone={income>=expense?"green":"red"}/><Metric label="Transaction count" value={String(p.rows.length)} note={p.monthFilter==="all"?"Across all months":`In ${monthKeyLabel(p.monthFilter)}`} icon={ArrowLeftRight} tone="blue"/></div>
   <section className="panel">
-   <div className="panel-head"><div><h2 className="panel-title">All transactions</h2><div className="panel-subtitle">Import, export, record refunds, and manage your categories</div></div><div className="filters"><button className="btn" onClick={p.onCategories}><Layers3 size={14}/> Categories</button><button className="btn" onClick={p.onExport}><Download size={14}/> Export CSV</button><button className="btn" onClick={p.onImport}><Upload size={14}/> Import</button><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add</button></div></div>
+   <div className="panel-head"><div><h2 className="panel-title">All transactions</h2><div className="panel-subtitle">Import, export, record refunds, and manage your categories</div></div><div className="filters"><button className="btn" onClick={p.onTransfer}><ArrowDownUp size={14}/> Transfer</button><button className="btn" onClick={p.onCategories}><Layers3 size={14}/> Categories</button><button className="btn" onClick={p.onExport}><Download size={14}/> Export CSV</button><button className="btn" onClick={p.onImport}><Upload size={14}/> Import</button><button className="btn primary" onClick={p.onAdd}><Plus size={15}/> Add</button></div></div>
    <div className="panel-body">
-    <div className="filters" style={{marginBottom:14}}><div style={{position:"relative",flex:"1 1 180px"}}><Search size={15} style={{position:"absolute",left:11,top:11,color:"#9ba1ad"}}/><input className="search" style={{paddingLeft:33,width:"100%"}} placeholder="Search transactions" value={p.searchTerm} onChange={e=>p.setSearchTerm(e.target.value)}/></div><select className="search" style={{width:"auto"}} value={p.filter} onChange={e=>p.setFilter(e.target.value as typeof p.filter)}><option value="all">All types</option><option value="income">Income</option><option value="expense">Expenses</option></select></div>
+    <div className="filters" style={{marginBottom:14}}><div style={{position:"relative",flex:"1 1 180px"}}><Search size={15} style={{position:"absolute",left:11,top:11,color:"#9ba1ad"}}/><input className="search" style={{paddingLeft:33,width:"100%"}} placeholder="Search transactions" value={p.searchTerm} onChange={e=>p.setSearchTerm(e.target.value)}/></div><select className="search" aria-label="Filter transactions by month" style={{width:"auto"}} value={p.monthFilter} onChange={e=>p.setMonthFilter(e.target.value)}><option value="all">All months</option>{p.monthOptions.map(month=><option key={month} value={month}>{monthKeyLabel(month)}</option>)}</select><select className="search" aria-label="Filter transaction type" style={{width:"auto"}} value={p.filter} onChange={e=>p.setFilter(e.target.value as typeof p.filter)}><option value="all">All types</option><option value="income">Income</option><option value="expense">Expenses</option></select></div>
     {p.rows.length===0?<div className="empty">No matching transactions. Add a transaction to get started.</div>:p.rows.map(t=><TransactionRow key={t.id} row={t} accountName={t.account_id?p.accountMap.get(t.account_id):undefined} refundedAmount={p.refundTotals.get(t.id)??0} onRefund={t.kind==="expense"?()=>p.onRefund(t):undefined} onEdit={()=>p.onEdit(t)} onDelete={()=>p.onDelete(t)}/>)}
    </div>
   </section>
