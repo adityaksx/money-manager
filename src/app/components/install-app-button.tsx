@@ -38,7 +38,7 @@ export default function InstallAppButton() {
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
-        console.warn("Money Manager offline support could not be registered:", error);
+        console.warn("RupeeTrail offline support could not be registered:", error);
       });
     }
 
@@ -85,7 +85,7 @@ export default function InstallAppButton() {
               <div className="pwa-modal-brand">
                 <span className="pwa-modal-icon"><Smartphone size={20} /></span>
                 <div>
-                  <h2 id="pwa-install-title" className="panel-title" style={{ fontSize: 16 }}>Install Money Manager</h2>
+                  <h2 id="pwa-install-title" className="panel-title" style={{ fontSize: 16 }}>Install RupeeTrail</h2>
                   <div className="panel-subtitle">Open it from your home screen like a regular app.</div>
                 </div>
               </div>
@@ -97,14 +97,14 @@ export default function InstallAppButton() {
                   <p>On your iPhone or iPad, open this website in <strong>Safari</strong>, then:</p>
                   <div className="pwa-step"><span>1</span><div><strong>Tap Share</strong><p>Use the Share icon in the Safari toolbar.</p><span className="pwa-symbol"><Share2 size={17} /> Share</span></div></div>
                   <div className="pwa-step"><span>2</span><div><strong>Choose “Add to Home Screen”</strong><p>You may need to scroll the Share menu to find it.</p><span className="pwa-symbol"><Plus size={17} /> Add to Home Screen</span></div></div>
-                  <div className="pwa-step"><span>3</span><div><strong>Tap Add</strong><p>The Money Manager icon will appear on your home screen.</p></div></div>
+                  <div className="pwa-step"><span>3</span><div><strong>Tap Add</strong><p>The RupeeTrail icon will appear on your home screen.</p></div></div>
                 </div>
               ) : (
                 <div className="pwa-instructions">
                   <p>{isAndroid ? "On Android, use Chrome or another supported browser." : "In a supported browser, open the browser menu."}</p>
                   <div className="pwa-step"><span>1</span><div><strong>Open the browser menu</strong><p>{isAndroid ? "Tap the three-dot menu (⋮) in Chrome." : "Look for Install app, Install page, or Add to Home Screen."}</p></div></div>
                   <div className="pwa-step"><span>2</span><div><strong>Choose “Install app” or “Add to Home screen”</strong><p>The exact wording varies by browser. If Chrome offers an install prompt, use that option.</p></div></div>
-                  <div className="pwa-step"><span>3</span><div><strong>Confirm installation</strong><p>Launch Money Manager from the new home-screen icon.</p></div></div>
+                  <div className="pwa-step"><span>3</span><div><strong>Confirm installation</strong><p>Launch RupeeTrail from the new home-screen icon.</p></div></div>
                 </div>
               )}
               <div className="pwa-security-note">Your financial data still uses your existing secure sign-in. Installing the app does not copy your data onto the home screen.</div>
