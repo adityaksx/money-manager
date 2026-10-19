@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, ArrowDownLeft, ArrowDownUp, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CreditCard, Download, Gem, HandCoins, History, Landmark, Layers3, LayoutDashboard, LoaderCircle, LogOut, MoreHorizontal, Pencil, PieChart, Plus, RotateCcw, Search, ShieldCheck, ShoppingBag, Target, Trash2, TrendingDown, TrendingUp, Upload, Wallet, X } from "lucide-react";
+import { Activity, ArrowDownLeft, ArrowDownUp, ArrowLeftRight, ArrowUpRight, Banknote, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CreditCard, Download, Gem, HandCoins, History, Landmark, Layers3, LayoutDashboard, LoaderCircle, LogOut, MoreHorizontal, Pencil, PieChart, Plus, RotateCcw, Search, ShoppingBag, Target, Trash2, TrendingDown, TrendingUp, Upload, Wallet, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dateKey, formatINR, monthRange, todayISO } from "@/lib/format";
@@ -440,11 +440,6 @@ export default function Home() {
   </div>;
 }
 
-function SignIn({configured,busy,error,onSignIn}:{configured:boolean;busy:boolean;error:string;onSignIn:()=>void}) {
- return <div className="sign-in-wrap"><div className="sign-in-card"><Brand/><div style={{marginTop:38}}><div className="eyebrow">PERSONAL FINANCE, SIMPLIFIED</div><h1 className="sign-in-title">Your money.<br/>One clear view.</h1><p className="sign-in-copy">Track spending, keep budgets on course, and see your cash and investments in one calm workspace.</p><button className="google-btn" disabled={!configured||busy} onClick={onSignIn}>{busy?<LoaderCircle size={18}/>:<GoogleIcon/>}{busy?"Connecting to Google…":"Continue with Google"}</button>{error&&<div className="auth-error">{error}</div>}{!configured&&<div className="setup-card"><strong>Supabase needs configuring.</strong><br/>Copy <code>.env.example</code> to <code>.env.local</code> and add your Supabase project URL and public anon/publishable key. Enable Google under Supabase Authentication → Providers.</div>}<div style={{marginTop:22,display:"flex",justifyContent:"center",alignItems:"center",gap:6,fontSize:10,color:"#9298a5"}}><ShieldCheck size={13}/> Your data is protected by database RLS.</div></div></div></div>;
-}
-
-function GoogleIcon(){return <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.76 7.18l7.73 6C44.42 37.99 46.98 31.8 46.98 24.55Z"/><path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.53 2.56 10.78l7.97-6.19Z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.14 1.45-4.89 2.3-8.18 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z"/></svg>;}
 function Avatar({name,url}:{name:string;url:string}){return <div className="avatar">{url?<img alt="" src={url}/>:name.slice(0,1).toUpperCase()}</div>;}
 function NavItems({page,setPage,mobile=false}:{page:Page;setPage:(p:Page)=>void;mobile?:boolean}){return <nav className={mobile?"":"nav-list"}>{nav.map(({name,icon:Icon})=><button key={name} className={"nav-item"+(page===name?" active":"")} title={name} onClick={()=>setPage(name)}><Icon className="nav-icon"/><span className="nav-text">{mobile&&name==="Overview"?"Home":mobile&&name==="Transactions"?"Activity":mobile&&name==="Bank accounts"?"Accounts":mobile&&name==="Investments"?"Invest":name}</span></button>)}</nav>;}
 function Metric({label,value,note,icon:Icon,tone="green",loading=false}:{label:string;value:number|string;note:string;icon:typeof TrendingUp;tone?:string;loading?:boolean}){
