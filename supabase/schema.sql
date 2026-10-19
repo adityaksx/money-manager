@@ -18,7 +18,7 @@ create table if not exists public.mm_budgets (
 );
 create table if not exists public.mm_investments (
  id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
- asset_type text not null check(asset_type in ('stock','mutual_fund','etf','gold','other')), name text not null, symbol text, platform text,
+ asset_type text not null check(asset_type in ('stock','mutual_fund','etf','gold','other','fixed_deposit')), name text not null, symbol text, platform text,
  units numeric(18,6) not null default 0 check(units >= 0), invested_amount numeric(14,2) not null check(invested_amount >= 0),
  current_value numeric(14,2) not null check(current_value >= 0), purchase_date date not null default current_date, notes text,
  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
@@ -28,6 +28,15 @@ alter table public.mm_investments add column if not exists exchange text;
 alter table public.mm_investments add column if not exists current_price numeric(18,6) check(current_price is null or current_price >= 0);
 alter table public.mm_investments add column if not exists price_updated_at timestamptz;
 alter table public.mm_investments add column if not exists price_source text;
+alter table public.mm_investments add column if not exists annual_interest_rate numeric(7,4);
+alter table public.mm_investments add column if not exists maturity_date date;
+alter table public.mm_investments add column if not exists compounding_frequency text not null default 'quarterly';
+alter table public.mm_investments drop constraint if exists mm_investments_annual_interest_rate_check;
+alter table public.mm_investments add constraint mm_investments_annual_interest_rate_check check(annual_interest_rate is null or (annual_interest_rate >= 0 and annual_interest_rate <= 100));
+alter table public.mm_investments drop constraint if exists mm_investments_compounding_frequency_check;
+alter table public.mm_investments add constraint mm_investments_compounding_frequency_check check(compounding_frequency in ('daily','monthly','quarterly','half_yearly','yearly'));
+alter table public.mm_investments drop constraint if exists mm_investments_maturity_after_opening_check;
+alter table public.mm_investments add constraint mm_investments_maturity_after_opening_check check(maturity_date is null or maturity_date >= purchase_date);
 
 create table if not exists public.mm_investment_transactions (
  id uuid primary key default gen_random_uuid(),
